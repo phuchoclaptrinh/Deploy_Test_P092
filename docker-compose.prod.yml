@@ -1,0 +1,47 @@
+services:
+  backend:
+    image: p092-backend
+    build:
+      context: .
+      dockerfile: Dockerfile
+    env_file:
+      - .env.production
+    environment:
+      PORT: 8080
+    ports:
+      - "127.0.0.1:8080:8080"
+    restart: unless-stopped
+
+  assignment-worker:
+    image: p092-backend
+    build:
+      context: .
+      dockerfile: Dockerfile
+    env_file:
+      - .env.production
+    command: ["python", "-m", "src.workers.assignment_worker"]
+    depends_on:
+      - backend
+    healthcheck:
+      disable: true
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
+        NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-}
+        NEXT_PUBLIC_AUTH_DISABLED: ${NEXT_PUBLIC_AUTH_DISABLED:-false}
+        NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL}
+        NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ${NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY}
+        NEXT_PUBLIC_DEV_PASSWORD_LOGIN: ${NEXT_PUBLIC_DEV_PASSWORD_LOGIN:-false}
+        NEXT_PUBLIC_DEV_AUTH_ENABLED: ${NEXT_PUBLIC_DEV_AUTH_ENABLED:-false}
+    env_file:
+      - ./frontend/.env.production
+    ports:
+      - "127.0.0.1:3000:3000"
+    depends_on:
+      - backend
+    restart: unless-stopped

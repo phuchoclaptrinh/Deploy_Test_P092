@@ -1,0 +1,35 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+jobs:
+  lint-and-test:
+    runs-on: [self-hosted, Linux, X64, cohort3]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        # requirements-dev.txt kéo theo requirements.txt qua `-r`, và là nơi
+        # chứa ruff + pytest. Chỉ cài requirements.txt thì hai bước dưới chết
+        # với "command not found" trước khi kịp kiểm tra bất cứ thứ gì.
+        run: pip install -r requirements-dev.txt
+
+      - name: Lint with ruff
+        run: ruff check src/ tests/
+
+      - name: Run tests
+        run: pytest tests/ -v --tb=short
+        env:
+          APP_ENV: test
+          OPENAI_API_KEY: test-key

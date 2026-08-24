@@ -1,0 +1,1 @@
+"""Static database security tests."""

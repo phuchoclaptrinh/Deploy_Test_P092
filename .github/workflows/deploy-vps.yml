@@ -1,0 +1,157 @@
+name: Deploy VPS
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - hungphuc
+      - main
+
+concurrency:
+  group: deploy-vps-${{ github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  ci:
+    runs-on: [self-hosted, Linux, X64, cohort3]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install backend dependencies
+        run: pip install -r requirements-dev.txt
+
+      - name: Lint backend
+        run: ruff check src/ tests/
+
+      - name: Test backend
+        run: pytest tests/ -v --tb=short
+        env:
+          APP_ENV: test
+          OPENAI_API_KEY: test-key
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Typecheck frontend
+        working-directory: frontend
+        run: npm run typecheck
+
+      - name: Build frontend
+        working-directory: frontend
+        run: npm run build
+        env:
+          NEXT_PUBLIC_API_URL: https://example.com
+          NEXT_PUBLIC_API_BASE_URL: https://example.com/api/v1
+          NEXT_PUBLIC_AUTH_DISABLED: "false"
+          NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
+          NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: test-key
+          NEXT_PUBLIC_DEV_PASSWORD_LOGIN: "false"
+          NEXT_PUBLIC_DEV_AUTH_ENABLED: "false"
+
+  deploy:
+    needs: ci
+    runs-on: [self-hosted, Linux, X64, cohort3]
+    if: github.event_name == 'workflow_dispatch' || github.ref_name == 'hungphuc' || github.ref_name == 'main'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Pack source
+        run: |
+          tar \
+            --exclude='.git' \
+            --exclude='.env' \
+            --exclude='.env.*' \
+            --exclude='.venv' \
+            --exclude='.ai-log' \
+            --exclude='.tmp' \
+            --exclude='data' \
+            --exclude='frontend/.env' \
+            --exclude='frontend/.env.*' \
+            --exclude='frontend/node_modules' \
+            --exclude='frontend/.next' \
+            --exclude='frontend/tsconfig.tsbuildinfo' \
+            -czf p092-release.tar.gz .
+
+      - name: Prepare remote directory
+        uses: appleboy/ssh-action@v1.2.0
+        env:
+          VPS_DEPLOY_PATH: ${{ secrets.VPS_DEPLOY_PATH }}
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          port: ${{ secrets.VPS_PORT || 22 }}
+          envs: VPS_DEPLOY_PATH
+          script: |
+            set -euo pipefail
+            DEPLOY_PATH="${VPS_DEPLOY_PATH:-/opt/p092}"
+            mkdir -p "$DEPLOY_PATH"
+            mkdir -p /tmp/p092-deploy
+
+      - name: Upload source
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          port: ${{ secrets.VPS_PORT || 22 }}
+          source: p092-release.tar.gz
+          target: /tmp/p092-deploy
+
+      - name: Deploy over SSH
+        uses: appleboy/ssh-action@v1.2.0
+        env:
+          VPS_DEPLOY_PATH: ${{ secrets.VPS_DEPLOY_PATH }}
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          port: ${{ secrets.VPS_PORT || 22 }}
+          envs: VPS_DEPLOY_PATH
+          script: |
+            set -euo pipefail
+            DEPLOY_PATH="${VPS_DEPLOY_PATH:-/opt/p092}"
+            RELEASE_DIR="$(mktemp -d /tmp/p092-release-XXXXXX)"
+            tar -xzf /tmp/p092-deploy/p092-release.tar.gz -C "$RELEASE_DIR"
+
+            if [ ! -f "$DEPLOY_PATH/.env.production" ]; then
+              echo "Missing .env.production on VPS."
+              exit 1
+            fi
+            if [ ! -f "$DEPLOY_PATH/frontend/.env.production" ]; then
+              echo "Missing frontend/.env.production on VPS."
+              exit 1
+            fi
+
+            cp "$DEPLOY_PATH/.env.production" "$RELEASE_DIR/.env.production"
+            mkdir -p "$RELEASE_DIR/frontend"
+            cp "$DEPLOY_PATH/frontend/.env.production" "$RELEASE_DIR/frontend/.env.production"
+            rm -rf "$DEPLOY_PATH.previous"
+            if [ -d "$DEPLOY_PATH" ]; then
+              mv "$DEPLOY_PATH" "$DEPLOY_PATH.previous"
+            fi
+            mv "$RELEASE_DIR" "$DEPLOY_PATH"
+            rm -f /tmp/p092-deploy/p092-release.tar.gz
+
+            cd "$DEPLOY_PATH"
+
+            docker compose --env-file .env.production -f docker-compose.prod.yml build
+            docker compose --env-file .env.production -f docker-compose.prod.yml run --rm backend alembic upgrade head
+            docker compose --env-file .env.production -f docker-compose.prod.yml up -d --remove-orphans
+            docker compose --env-file .env.production -f docker-compose.prod.yml ps

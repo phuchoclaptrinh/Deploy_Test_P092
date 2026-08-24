@@ -1,0 +1,202 @@
+{
+  "dataset_version": "v4-concrete-116-2026-08-22",
+  "run_at": "2026-08-24T12:00:42.015241+00:00",
+  "scope": "agent-action-only-scripted-model-evidence",
+  "total_run": 83,
+  "passed": 83,
+  "failed": 0,
+  "errors": 0,
+  "excluded": 33,
+  "production_entrypoint_diagnostic": {
+    "status": "PASS",
+    "stage": "src.agents.v4.service._build_initial_state",
+    "error": null
+  },
+  "by_cluster": {
+    "A1": {
+      "total": 17,
+      "pass": 17,
+      "fail": 0,
+      "error": 0
+    },
+    "A2": {
+      "total": 14,
+      "pass": 14,
+      "fail": 0,
+      "error": 0
+    },
+    "A3": {
+      "total": 16,
+      "pass": 16,
+      "fail": 0,
+      "error": 0
+    },
+    "B1": {
+      "total": 18,
+      "pass": 18,
+      "fail": 0,
+      "error": 0
+    },
+    "B2": {
+      "total": 18,
+      "pass": 18,
+      "fail": 0,
+      "error": 0
+    }
+  },
+  "observed": {
+    "analysis_outcomes": {
+      "ANALYSIS_COMPLETE": 21,
+      "AWAITING_RESIDENT": 7,
+      "DUPLICATE_EXISTING": 2,
+      "DUPLICATE_UNCERTAIN": 1,
+      "INSUFFICIENT_INPUT": 4,
+      "RED_FLAG": 12
+    },
+    "tool_calls": {
+      "ask_resident": 16,
+      "propose_case_grouping": 4,
+      "search_related_tickets:DUPLICATE": 33,
+      "search_related_tickets:GROUPING": 9
+    },
+    "resident_questions": 16,
+    "assignment_cases": 36,
+    "assignment_fallback_cases": 19,
+    "assignment_decisions": 81,
+    "assignment_failures": 2
+  },
+  "excluded_cases": [
+    {
+      "case_id": "A1-014",
+      "reason": "Backend pre-filter, không vào Agent"
+    },
+    {
+      "case_id": "A1-015",
+      "reason": "Backend pre-filter, không vào Agent"
+    },
+    {
+      "case_id": "A1-016",
+      "reason": "Backend pre-filter, không vào Agent"
+    },
+    {
+      "case_id": "A1-017",
+      "reason": "Backend pre-filter, không vào Agent"
+    },
+    {
+      "case_id": "A1-018",
+      "reason": "Backend pre-filter, không vào Agent"
+    },
+    {
+      "case_id": "A1-019",
+      "reason": "Backend pre-filter, không vào Agent"
+    },
+    {
+      "case_id": "A1-020",
+      "reason": "Backend pre-filter, không vào Agent"
+    },
+    {
+      "case_id": "A1-021",
+      "reason": "Backend pre-filter, không vào Agent"
+    },
+    {
+      "case_id": "A1-022",
+      "reason": "Backend pre-filter, không vào Agent"
+    },
+    {
+      "case_id": "A1-023",
+      "reason": "Backend pre-filter, không vào Agent"
+    },
+    {
+      "case_id": "A1-024",
+      "reason": "Backend pre-filter, không vào Agent"
+    },
+    {
+      "case_id": "A1-025",
+      "reason": "Backend pre-filter, không vào Agent"
+    },
+    {
+      "case_id": "A1-026",
+      "reason": "Backend pre-filter, không vào Agent"
+    },
+    {
+      "case_id": "A1-027",
+      "reason": "Backend pre-filter, không vào Agent"
+    },
+    {
+      "case_id": "A1-028",
+      "reason": "Backend pre-filter, không vào Agent"
+    },
+    {
+      "case_id": "A1-029",
+      "reason": "Backend pre-filter, không vào Agent"
+    },
+    {
+      "case_id": "A1-030",
+      "reason": "Backend pre-filter, không vào Agent"
+    },
+    {
+      "case_id": "A1-031",
+      "reason": "Backend pre-filter, không vào Agent"
+    },
+    {
+      "case_id": "A1-032",
+      "reason": "Backend pre-filter, không vào Agent"
+    },
+    {
+      "case_id": "A3-008",
+      "reason": "Backend pre-filter, không vào Agent"
+    },
+    {
+      "case_id": "A3-009",
+      "reason": "Backend pre-filter, không vào Agent"
+    },
+    {
+      "case_id": "A3-010",
+      "reason": "Backend pre-filter, không vào Agent"
+    },
+    {
+      "case_id": "A3-011",
+      "reason": "Backend pre-filter, không vào Agent"
+    },
+    {
+      "case_id": "A3-012",
+      "reason": "Backend pre-filter, không vào Agent"
+    },
+    {
+      "case_id": "A3-013",
+      "reason": "Backend pre-filter, không vào Agent"
+    },
+    {
+      "case_id": "A3-014",
+      "reason": "Backend pre-filter, không vào Agent"
+    },
+    {
+      "case_id": "A3-017",
+      "reason": "Backend pre-filter, không vào Agent"
+    },
+    {
+      "case_id": "A3-024",
+      "reason": "Backend pre-filter, không vào Agent"
+    },
+    {
+      "case_id": "A3-025",
+      "reason": "Backend pre-filter, không vào Agent"
+    },
+    {
+      "case_id": "B1-005",
+      "reason": "Backend pre-filter, không vào Agent"
+    },
+    {
+      "case_id": "B1-007",
+      "reason": "Backend pre-filter, không vào Agent"
+    },
+    {
+      "case_id": "B2-005",
+      "reason": "Backend pre-filter, không vào Agent"
+    },
+    {
+      "case_id": "B2-006",
+      "reason": "Backend pre-filter, không vào Agent"
+    }
+  ]
+}

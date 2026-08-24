@@ -1,0 +1,39 @@
+
+=== Kịch bản 1: Flow hoàn chỉnh (ảnh -> duyệt -> phân tay -> hoàn thành -> thông báo) ===
+Resident login: demo.res.194250.cudandemo1@fixit.vn / Demo!12345
+Coordinator login: demo.coord.194250.bqldemo1@fixit.vn / Demo!12345
+Technician login: demo.tech.194250.ktvdemo1@fixit.vn / Demo!12345
+Đã tạo ticket 05d85cab-c430-4117-b2ac-da9c3918b177 (kèm ảnh thật).
+Sau phân tích AI: status=TicketStatus.NEW, classification=ClassificationStatus.MANUAL_REVIEW, category_id=None, priority=None
+KHÔNG ĐẠT: AI chưa kết luận được category/priority tự động — ticket cần Điều phối viên duyệt thủ công trước (mục 2.3 dac_ta). Không phải lỗi code — đây là hàng chờ duyệt thủ công hợp lệ theo đặc tả nếu AI không đủ tự tin. Video demo cần bắt đầu từ bước 'Duyệt ticket chờ xử lý thủ công' thay vì bước Duyệt (APPROVE) thẳng.
+
+=== Kịch bản 2: Spam 10 ticket/giờ -> khóa gửi 12h ===
+Resident login: demo.res.194250.cudandemo2spam@fixit.vn / Demo!12345
+Ticket thứ 11: bị chặn — Bạn đã gửi quá nhiều phản ánh trong thời gian ngắn. Vui lòng thử lại sau.
+Đã tạo thành công 10 ticket trước khi bị chặn.
+ĐẠT: đúng 10 ticket lọt qua, ticket thứ 11 bị chặn với lý do rate-limit — khớp mục 4.9.
+Bản ghi rate-limit: (datetime.datetime(2026, 8, 25, 0, 43, 35, 506874, tzinfo=datetime.timezone.utc), 'Resident created too many tickets in one hour.', 10)
+Video demo: đăng nhập resident demo.res.194250.cudandemo2spam@fixit.vn / Demo!12345, gửi ticket thứ 11 trên camera để thấy thông báo khóa; 10 ticket trước đó đã có sẵn trong DB nên không cần gửi lại 10 lần trên máy quay.
+
+=== Kịch bản 3: Nội dung không liên quan -> Không hợp lệ ===
+Resident login: demo.res.194250.cudandemo3reject@fixit.vn / Demo!12345
+Đã tạo ticket 01b9858a-63fd-4e76-8c92-f768b928f8a1 với nội dung không phải phản ánh sự cố.
+Sau phân tích AI: status=TicketStatus.INVALID, classification=ClassificationStatus.RESOLVED
+ĐẠT: ticket tự đóng với trạng thái Không hợp lệ đúng mục 1.2 bước 5 / 4.5.
+Video demo: đăng nhập resident demo.res.194250.cudandemo3reject@fixit.vn / Demo!12345, gửi ticket với nội dung tương tự trên camera; hoặc dùng lại ticket 01b9858a-63fd-4e76-8c92-f768b928f8a1 có sẵn để mở chi tiết cho thấy trạng thái Không hợp lệ.
+
+=== Kịch bản 4: Gộp cụm rò nước lan tầng liền kề (§4.3a) ===
+Ticket A (tầng 4, A-0401): be94be45-8b46-4083-9fc5-5f4b38308449
+Ticket A sau phân tích: status=TicketStatus.NEW, category_id=None
+Ticket B (tầng 5, A-0501, liền kề tầng 4): f404ac17-1bba-49d2-a041-64ea8e704905
+Ticket B sau phân tích: status=TicketStatus.NEW, category_id=None
+KHÔNG GỘP: hai ticket không nằm cùng một case (case_ids quan sát được: set()). Có thể do LLM không gọi tool propose_case_grouping trong lượt phân tích ticket B (không phải lỗi cấu trúc case_draft đã sửa ở phiên trước — đó là logic phân việc, còn đây là bước tạo case lúc phân tích). Xem lại trace của ticket B bằng scripts/read_agent_trace.py để xác nhận Agent có tra cứu ticket A hay không.
+Video demo: 2 ticket đã có sẵn trong Dashboard BQL, hiển thị dưới dạng một cụm (nếu gộp thành công) hoặc hai ticket riêng (nếu không). Resident logins: demo.res.194250.cudandemo4a@fixit.vn / Demo!12345, demo.res.194250.cudandemo4b@fixit.vn / Demo!12345.
+
+=== Kịch bản 5: Phản ánh trùng cùng một sự cố đang xử lý (§4.3b) ===
+Ticket A (gốc): 71aa349f-0d40-41d4-8e2a-5000981131f3
+Ticket A sau phân tích: status=TicketStatus.NEW, category_id=None
+Ticket B (trùng): 87eecb65-5415-4394-aede-36d8d0be5e45
+Ticket B sau phân tích: status=TicketStatus.NEW, duplicate_of=None
+KHÔNG NHẬN DIỆN TRÙNG: ticket B kết thúc ở status=TicketStatus.NEW, duplicate_of=None. Có thể do LLM chưa đủ chắc chắn (đúng theo mục 4.3b điểm 6, ticket B sẽ vào hàng chờ Điều phối viên duyệt thay vì tự liên kết) — không nhất thiết là bug. Kiểm tra trace bằng scripts/read_agent_trace.py để xác nhận Agent có gọi search_related_tickets:DUPLICATE hay không.
+Video demo: 2 ticket đã có sẵn. Resident logins: demo.res.194250.cudandemo5a@fixit.vn / Demo!12345, demo.res.194250.cudandemo5b@fixit.vn / Demo!12345.

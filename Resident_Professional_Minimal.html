@@ -1,0 +1,556 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/>
+<title>Resident — Professional Minimal UI</title>
+<style>
+:root{
+  --bg:#f5f7fa;
+  --surface:#ffffff;
+  --surface-2:#f8fafc;
+  --primary:#1e3a5f;
+  --primary-2:#162f4d;
+  --primary-soft:#edf3f8;
+  --text:#172033;
+  --text-2:#667085;
+  --muted:#98a2b3;
+  --border:#e4e7ec;
+  --border-2:#eef0f2;
+  --success:#027a48;
+  --success-bg:#ecfdf3;
+  --warn:#b54708;
+  --warn-bg:#fffaeb;
+  --danger:#b42318;
+  --danger-bg:#fef3f2;
+  --info:#175cd3;
+  --info-bg:#eff8ff;
+  --shadow:0 14px 40px rgba(16,24,40,.10);
+  --ease:cubic-bezier(.2,.8,.2,1);
+}
+*{box-sizing:border-box}
+html,body{margin:0;min-height:100%;font-family:Inter,ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:var(--bg);color:var(--text)}
+button,input,textarea{font:inherit}
+button{cursor:pointer}
+body{display:grid;place-items:center;padding:28px}
+.phone{
+  width:min(390px,100vw);
+  height:min(844px,100vh);
+  background:var(--surface);
+  border:1px solid var(--border);
+  border-radius:30px;
+  overflow:hidden;
+  box-shadow:var(--shadow);
+  position:relative;
+}
+.app{height:100%;display:flex;flex-direction:column;background:var(--bg)}
+.statusbar{height:28px;background:var(--surface);display:flex;align-items:center;justify-content:space-between;padding:0 18px;font-size:11px;font-weight:600;color:#344054}
+.screen{flex:1;overflow:auto;padding:0 16px 92px;scrollbar-width:none}
+.screen::-webkit-scrollbar{display:none}
+.topbar{
+  position:sticky;top:0;z-index:5;
+  margin:0 -16px 0;
+  height:60px;padding:0 16px;
+  display:flex;align-items:center;justify-content:space-between;
+  background:rgba(255,255,255,.96);
+  border-bottom:1px solid var(--border-2);
+  backdrop-filter:blur(10px);
+}
+.brand{display:flex;align-items:center;gap:10px}
+.logo{
+  width:34px;height:34px;border-radius:10px;background:var(--primary);
+  display:grid;place-items:center;color:#fff;box-shadow:0 2px 6px rgba(30,58,95,.16)
+}
+.logo svg{width:18px;height:18px}
+.eyebrow{font-size:11px;color:var(--muted);font-weight:600;letter-spacing:.04em}
+.title{font-size:19px;line-height:1.2;font-weight:650;letter-spacing:-.02em}
+.subtitle{font-size:13px;line-height:1.5;color:var(--text-2);margin-top:6px}
+.icon-btn{
+  width:38px;height:38px;border:1px solid var(--border);border-radius:10px;
+  background:var(--surface);display:grid;place-items:center;color:#475467;
+  transition:.16s var(--ease)
+}
+.icon-btn:hover{background:var(--surface-2);border-color:#d0d5dd}
+.icon-btn:active{transform:scale(.97)}
+.icon-btn svg{width:18px;height:18px}
+.hero{padding:22px 0 16px}
+.greeting{font-size:14px;color:var(--text-2);margin-bottom:4px}
+.hero h1{margin:0;font-size:24px;line-height:1.25;letter-spacing:-.035em;font-weight:670}
+.home-card{
+  background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:18px;
+  box-shadow:0 1px 2px rgba(16,24,40,.03)
+}
+.primary-card{background:linear-gradient(180deg,#fff,#fbfcfd)}
+.row{display:flex;align-items:center}
+.between{justify-content:space-between}
+.gap8{gap:8px}.gap10{gap:10px}.gap12{gap:12px}
+.section{margin-top:20px}
+.section-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
+.section-title{font-size:14px;font-weight:650}
+.text-link{border:0;background:transparent;color:var(--primary);font-size:12px;font-weight:600;padding:4px 0}
+.cta{
+  border:0;border-radius:11px;background:var(--primary);color:white;
+  height:44px;padding:0 15px;font-size:14px;font-weight:600;
+  display:inline-flex;align-items:center;justify-content:center;gap:8px;
+  transition:.16s var(--ease)
+}
+.cta:hover{background:var(--primary-2)}
+.cta:active{transform:scale(.985)}
+.cta svg,.secondary svg{width:17px;height:17px}
+.secondary{
+  height:42px;border-radius:10px;border:1px solid #d0d5dd;background:#fff;color:#344054;
+  padding:0 14px;font-size:13px;font-weight:600;display:inline-flex;align-items:center;justify-content:center;gap:7px;
+  transition:.16s var(--ease)
+}
+.secondary:hover{background:#f9fafb}
+.secondary:active{transform:scale(.985)}
+.full{width:100%}
+.issue-intro{display:flex;align-items:flex-start;gap:14px}
+.issue-icon{
+  width:44px;height:44px;border-radius:12px;background:var(--primary-soft);color:var(--primary);
+  display:grid;place-items:center;flex:none
+}
+.issue-icon svg{width:21px;height:21px}
+.issue-intro strong{font-size:15px;display:block;margin:1px 0 4px}
+.issue-intro p{margin:0;color:var(--text-2);font-size:12.5px;line-height:1.5}
+.ticket-list{display:flex;flex-direction:column;gap:10px}
+.ticket{
+  border:1px solid var(--border);background:#fff;border-radius:14px;padding:14px;
+  transition:.16s var(--ease)
+}
+.ticket:hover{border-color:#d0d5dd;background:#fdfefe}
+.ticket:active{transform:scale(.994)}
+.ticket-top{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}
+.ticket-id{font-size:11px;color:var(--muted);font-weight:650;letter-spacing:.02em}
+.badge{height:24px;padding:0 8px;border-radius:999px;font-size:11px;font-weight:650;display:inline-flex;align-items:center;border:1px solid transparent}
+.badge.info{background:var(--info-bg);color:var(--info);border-color:#b2ddff}
+.badge.success{background:var(--success-bg);color:var(--success);border-color:#abefc6}
+.badge.warn{background:var(--warn-bg);color:var(--warn);border-color:#fedf89}
+.badge.danger{background:var(--danger-bg);color:var(--danger);border-color:#fecdca}
+.ticket-title{font-size:14px;font-weight:650;margin-bottom:5px}
+.ticket-meta{font-size:12px;color:var(--text-2)}
+.progress{height:5px;border-radius:999px;background:#eef0f2;overflow:hidden;margin-top:12px}
+.progress span{display:block;height:100%;background:var(--primary);border-radius:inherit}
+.bottom-nav{
+  position:absolute;left:0;right:0;bottom:0;z-index:20;
+  height:76px;padding:8px 10px max(8px,env(safe-area-inset-bottom));
+  display:grid;grid-template-columns:repeat(4,1fr);
+  background:rgba(255,255,255,.98);
+  border-top:1px solid var(--border);
+  backdrop-filter:blur(12px);
+}
+.nav-item{
+  border:0;background:transparent;color:var(--muted);border-radius:11px;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;
+  font-size:10.5px;font-weight:600;transition:.16s var(--ease)
+}
+.nav-item svg{width:19px;height:19px}
+.nav-item.active{color:var(--primary);background:var(--primary-soft)}
+.nav-item:active{transform:scale(.97)}
+.page{display:none;animation:pageIn .18s var(--ease)}
+.page.active{display:block}
+@keyframes pageIn{from{opacity:.35;transform:translateY(3px)}to{opacity:1;transform:none}}
+.form-wrap{padding:18px 0}
+.field{margin-bottom:15px}
+.label{display:block;font-size:12px;font-weight:650;color:#344054;margin-bottom:7px}
+.input,.textarea,.select{
+  width:100%;border:1px solid #d0d5dd;background:#fff;border-radius:10px;color:var(--text);
+  outline:none;transition:.16s var(--ease)
+}
+.input,.select{height:44px;padding:0 12px}
+.textarea{min-height:104px;padding:12px;resize:none;line-height:1.5}
+.input:focus,.textarea:focus,.select:focus{border-color:#7393b3;box-shadow:0 0 0 3px rgba(30,58,95,.07)}
+.upload{
+  height:132px;border:1px dashed #b8c0cc;border-radius:12px;background:#fbfcfd;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;color:var(--text-2);
+  transition:.16s var(--ease)
+}
+.upload:hover{border-color:#8093a8;background:#f8fafc}
+.upload svg{width:24px;height:24px;color:var(--primary);margin-bottom:8px}
+.upload strong{font-size:13px;color:#344054}
+.upload span{font-size:11.5px;margin-top:4px}
+.hint{font-size:11.5px;line-height:1.5;color:var(--muted);margin-top:7px}
+.analysis{min-height:610px;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:30px 8px}
+.loader{width:72px;height:72px;border-radius:50%;border:1px solid #d6dde5;display:grid;place-items:center;position:relative;margin-bottom:20px}
+.loader:before{content:"";position:absolute;inset:5px;border:2px solid transparent;border-top-color:var(--primary);border-radius:50%;animation:spin .95s linear infinite}
+.loader svg{width:25px;height:25px;color:var(--primary)}
+@keyframes spin{to{transform:rotate(360deg)}}
+.analysis h2{font-size:19px;margin:0 0 8px}
+.analysis p{font-size:13px;line-height:1.55;color:var(--text-2);margin:0;max-width:285px}
+.analysis .ticket-tag{margin-top:14px}
+.question-card{margin:22px 0 0;background:#fff;border:1px solid var(--border);border-radius:16px;padding:17px}
+.q-meta{display:flex;align-items:center;justify-content:space-between;margin-bottom:13px}
+.step{font-size:11px;color:var(--muted);font-weight:650}
+.timer{font-size:11px;color:var(--warn);font-weight:650}
+.q-title{font-size:16px;font-weight:650;line-height:1.45;margin-bottom:15px}
+.option{
+  width:100%;min-height:44px;padding:11px 12px;border:1px solid var(--border);background:#fff;border-radius:10px;
+  display:flex;align-items:center;gap:10px;text-align:left;color:#344054;font-size:13px;margin-top:8px;
+  transition:.16s var(--ease)
+}
+.option:hover{border-color:#aeb8c4;background:#fbfcfd}
+.option.selected{border-color:#7b94ad;background:var(--primary-soft);color:var(--primary)}
+.radio{width:16px;height:16px;border:1.5px solid #98a2b3;border-radius:50%;display:grid;place-items:center;flex:none}
+.selected .radio:after{content:"";width:8px;height:8px;background:var(--primary);border-radius:50%}
+.detail-hero{padding:18px 0 10px}
+.detail-title-row{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
+.detail-title{font-size:21px;font-weight:680;letter-spacing:-.03em}
+.detail-sub{font-size:12.5px;color:var(--text-2);margin-top:5px}
+.timeline{background:#fff;border:1px solid var(--border);border-radius:15px;padding:16px}
+.tl-item{display:grid;grid-template-columns:20px 1fr;gap:10px;position:relative;padding-bottom:18px}
+.tl-item:last-child{padding-bottom:0}
+.tl-dot{width:12px;height:12px;border-radius:50%;background:#d0d5dd;margin-top:3px;position:relative;z-index:2}
+.tl-item.done .tl-dot{background:var(--primary)}
+.tl-item:not(:last-child) .tl-dot:after{content:"";position:absolute;width:1px;background:#e4e7ec;top:12px;bottom:-22px;left:5.5px}
+.tl-name{font-size:13px;font-weight:650}
+.tl-note{font-size:11.5px;color:var(--text-2);margin-top:3px;line-height:1.45}
+.info-list{background:#fff;border:1px solid var(--border);border-radius:15px;overflow:hidden}
+.info-row{padding:13px 15px;display:flex;justify-content:space-between;gap:16px;border-bottom:1px solid var(--border-2);font-size:12.5px}
+.info-row:last-child{border-bottom:0}
+.info-row span:first-child{color:var(--text-2)}
+.info-row strong{font-weight:600;text-align:right}
+.notice{border:1px solid #fedf89;background:var(--warn-bg);color:#7a2e0e;border-radius:13px;padding:13px 14px;font-size:12.5px;line-height:1.5}
+.emergency{border-color:#fecdca;background:var(--danger-bg);color:#7a271a}
+.empty{padding:70px 24px;text-align:center;color:var(--text-2)}
+.empty svg{width:28px;height:28px;color:var(--muted);margin-bottom:10px}
+.notification{background:#fff;border:1px solid var(--border);border-radius:14px;padding:14px;margin-top:10px}
+.notification.unread{border-left:3px solid var(--primary)}
+.noti-top{display:flex;justify-content:space-between;gap:12px;margin-bottom:5px}
+.noti-title{font-size:13px;font-weight:650}
+.noti-time{font-size:10.5px;color:var(--muted)}
+.noti-body{font-size:12px;color:var(--text-2);line-height:1.5}
+.profile-card{background:#fff;border:1px solid var(--border);border-radius:16px;padding:18px;margin-top:18px}
+.avatar{width:48px;height:48px;border-radius:50%;background:var(--primary-soft);color:var(--primary);display:grid;place-items:center;font-weight:700}
+.profile-name{font-size:15px;font-weight:650}
+.profile-sub{font-size:12px;color:var(--text-2);margin-top:3px}
+.auth{
+  height:100%;background:#fff;padding:34px 22px;display:flex;flex-direction:column
+}
+.auth .logo{width:42px;height:42px;border-radius:12px}
+.auth h1{font-size:26px;letter-spacing:-.04em;margin:28px 0 7px}
+.auth p{font-size:13px;color:var(--text-2);line-height:1.55;margin:0 0 26px}
+.otp{display:grid;grid-template-columns:repeat(6,1fr);gap:8px;margin:12px 0 18px}
+.otp input{width:100%;height:48px;border:1px solid #d0d5dd;border-radius:10px;text-align:center;font-size:18px;font-weight:650;outline:none}
+.otp input:focus{border-color:#7393b3;box-shadow:0 0 0 3px rgba(30,58,95,.07)}
+.auth-note{font-size:11.5px;color:var(--muted);line-height:1.5;margin-top:12px}
+.hidden{display:none!important}
+@media(max-width:520px){
+  body{padding:0;background:#fff}
+  .phone{width:100vw;height:100dvh;border:0;border-radius:0;box-shadow:none}
+  .statusbar{display:none}
+}
+</style>
+</head>
+<body>
+<div class="phone">
+  <div class="app" id="app">
+    <div class="statusbar"><span>19:51</span><span>5G&nbsp;&nbsp;●●●&nbsp;&nbsp;▰</span></div>
+
+    <!-- AUTH -->
+    <div id="authPage" class="auth hidden">
+      <div class="logo">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 11.5 12 4l9 7.5"/><path d="M5 10v10h14V10"/><path d="M9 20v-6h6v6"/></svg>
+      </div>
+      <h1>Chào mừng bạn</h1>
+      <p>Đăng nhập bằng số điện thoại để gửi và theo dõi phản ánh tại căn hộ của bạn.</p>
+      <div class="field">
+        <label class="label">Số điện thoại</label>
+        <input class="input" value="+84 912 345 678"/>
+      </div>
+      <button class="cta full" onclick="showOtp()">Tiếp tục</button>
+      <div id="otpBox" class="hidden">
+        <div class="field" style="margin-top:22px">
+          <label class="label">Mã OTP</label>
+          <div class="otp">
+            <input value="1"/><input value="2"/><input value="4"/><input value="8"/><input value="5"/><input value="9"/>
+          </div>
+        </div>
+        <div class="field">
+          <label class="label">Mã căn hộ</label>
+          <input class="input" value="A-0706"/>
+        </div>
+        <button class="cta full" onclick="enterApp()">Xác nhận & liên kết căn hộ</button>
+      </div>
+      <div class="auth-note">Mã OTP dùng để xác thực số điện thoại. Sau lần liên kết đầu tiên, hệ thống ghi nhận căn hộ gắn với tài khoản của bạn.</div>
+    </div>
+
+    <!-- MAIN -->
+    <div id="mainApp">
+      <main class="screen">
+        <!-- HOME -->
+        <section class="page active" data-page="home">
+          <div class="topbar">
+            <div class="brand">
+              <div class="logo">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 11.5 12 4l9 7.5"/><path d="M5 10v10h14V10"/><path d="M9 20v-6h6v6"/></svg>
+              </div>
+              <div><div class="eyebrow">RESIDENT</div><div style="font-size:13px;font-weight:650">A-0706 · Tòa A</div></div>
+            </div>
+            <button class="icon-btn" onclick="go('notifications')" aria-label="Thông báo">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M18 8a6 6 0 10-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9"/><path d="M10 21h4"/></svg>
+            </button>
+          </div>
+          <div class="hero">
+            <div class="greeting">Chào buổi tối,</div>
+            <h1>Huyền Thư</h1>
+            <div class="subtitle">Bạn cần hỗ trợ vấn đề gì tại căn hộ hoặc khu vực chung?</div>
+          </div>
+
+          <div class="home-card primary-card">
+            <div class="issue-intro">
+              <div class="issue-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 013 3L8 18l-4 1 1-4Z"/></svg>
+              </div>
+              <div>
+                <strong>Gửi phản ánh mới</strong>
+                <p>Chụp ảnh và mô tả ngắn. Hệ thống sẽ phân tích và chuyển tới bộ phận phù hợp.</p>
+              </div>
+            </div>
+            <button class="cta full" style="margin-top:16px" onclick="openReport()">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 5v14M5 12h14"/></svg>
+              Gửi phản ánh mới
+            </button>
+          </div>
+
+          <div class="section">
+            <div class="section-head"><div class="section-title">Đang theo dõi</div><button class="text-link" onclick="go('history')">Xem lịch sử</button></div>
+            <div class="ticket-list">
+              <div class="ticket" onclick="openDetail()">
+                <div class="ticket-top"><span class="ticket-id">#TK-1040 · hôm nay, 18:42</span><span class="badge info">Đã gán</span></div>
+                <div class="ticket-title">Rò nước tại hành lang tầng 7</div>
+                <div class="ticket-meta">A · T7 · Hành lang · KTV Hùng</div>
+                <div class="progress"><span style="width:62%"></span></div>
+              </div>
+              <div class="ticket" onclick="openDetail()">
+                <div class="ticket-top"><span class="ticket-id">#TK-1036 · hôm qua, 20:16</span><span class="badge success">Hoàn tất</span></div>
+                <div class="ticket-title">Đèn hành lang chập chờn</div>
+                <div class="ticket-meta">A · T7 · Hành lang</div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- REPORT -->
+        <section class="page" data-page="report">
+          <div class="topbar">
+            <button class="icon-btn" onclick="go('home')">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><path d="m15 18-6-6 6-6"/></svg>
+            </button>
+            <div style="font-size:14px;font-weight:650">Gửi phản ánh</div>
+            <div style="width:38px"></div>
+          </div>
+          <div class="form-wrap">
+            <div class="field">
+              <label class="label">Ảnh sự cố</label>
+              <div class="upload">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M14.5 4H9.5L8 6H5a2 2 0 00-2 2v10a2 2 0 002 2h14a2 2 0 002-2V8a2 2 0 00-2-2h-3Z"/><circle cx="12" cy="13" r="3.5"/></svg>
+                <strong>Chụp ảnh hoặc chọn từ thiết bị</strong>
+                <span>Ảnh rõ giúp hệ thống xác định nhanh hơn</span>
+              </div>
+            </div>
+            <div class="field">
+              <label class="label">Vị trí xảy ra</label>
+              <select class="select"><option>A · Tầng 7 · Hành lang</option><option>Trong căn hộ A-0706</option></select>
+            </div>
+            <div class="field">
+              <label class="label">Mô tả vấn đề</label>
+              <textarea class="textarea">Nước đang rò ra từ khu vực gần trần hành lang, lượng nước tăng dần.</textarea>
+              <div class="hint">Mô tả những gì bạn nhìn thấy. Không cần tự chọn Category hay Priority.</div>
+            </div>
+            <button class="cta full" onclick="submitReport()">Gửi phản ánh</button>
+          </div>
+        </section>
+
+        <!-- ANALYSIS -->
+        <section class="page" data-page="analysis">
+          <div class="topbar"><div style="width:38px"></div><div style="font-size:14px;font-weight:650">Đang phân tích</div><div style="width:38px"></div></div>
+          <div class="analysis">
+            <div class="loader">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M12 2a7 7 0 00-7 7c0 6 7 13 7 13s7-7 7-13a7 7 0 00-7-7Z"/><circle cx="12" cy="9" r="2.5"/></svg>
+            </div>
+            <h2>Đang đọc ảnh & mô tả</h2>
+            <p>Hệ thống đang xác định loại sự cố, mức độ ưu tiên và thông tin còn thiếu.</p>
+            <span class="badge info ticket-tag">#TK-1041 · Mới</span>
+          </div>
+        </section>
+
+        <!-- QUESTION -->
+        <section class="page" data-page="question">
+          <div class="topbar">
+            <div style="width:38px"></div>
+            <div style="font-size:14px;font-weight:650">Cần thêm thông tin</div>
+            <div style="width:38px"></div>
+          </div>
+          <div class="question-card">
+            <div class="q-meta"><span class="step">Câu hỏi 1 / tối đa 3</span><span class="timer">Còn 04:32</span></div>
+            <div class="q-title">Nước đang chảy ở mức nào?</div>
+            <button class="option selected" onclick="pick(this)"><span class="radio"></span><span>Rỉ nhẹ / nhỏ giọt</span></button>
+            <button class="option" onclick="pick(this)"><span class="radio"></span><span>Chảy thành dòng liên tục</span></button>
+            <button class="option" onclick="pick(this)"><span class="radio"></span><span>Chảy mạnh, có dấu hiệu lan rộng</span></button>
+            <button class="cta full" style="margin-top:15px" onclick="answerQuestion()">Gửi câu trả lời</button>
+          </div>
+          <div class="notice" style="margin-top:12px">Phản hồi trong vòng 5 phút để hệ thống tiếp tục xử lý ticket hiện tại.</div>
+        </section>
+
+        <!-- NEED MORE -->
+        <section class="page" data-page="needmore">
+          <div class="topbar"><div style="width:38px"></div><div style="font-size:14px;font-weight:650">Cần bổ sung</div><div style="width:38px"></div></div>
+          <div class="analysis">
+            <div class="issue-icon" style="margin-bottom:16px;background:var(--warn-bg);color:var(--warn)">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M10.3 3.3 2.6 17a2 2 0 001.7 3h15.4a2 2 0 001.7-3L13.7 3.3a2 2 0 00-3.4 0Z"/><path d="M12 9v4M12 17h.01"/></svg>
+            </div>
+            <h2>Chưa đủ thông tin</h2>
+            <p>Hệ thống chưa thể xác định vấn đề. Vui lòng chụp ảnh rõ hơn hoặc bổ sung mô tả.</p>
+            <div style="width:100%;margin-top:20px">
+              <button class="cta full" onclick="go('report')">Chụp lại ảnh</button>
+              <button class="secondary full" style="margin-top:9px" onclick="go('report')">Bổ sung mô tả</button>
+            </div>
+          </div>
+        </section>
+
+        <!-- EMERGENCY -->
+        <section class="page" data-page="emergency">
+          <div class="topbar"><div style="width:38px"></div><div style="font-size:14px;font-weight:650">Dấu hiệu nguy hiểm</div><div style="width:38px"></div></div>
+          <div class="analysis">
+            <div class="issue-icon" style="margin-bottom:16px;background:var(--danger-bg);color:var(--danger)">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M10.3 3.3 2.6 17a2 2 0 001.7 3h15.4a2 2 0 001.7-3L13.7 3.3a2 2 0 00-3.4 0Z"/><path d="M12 9v4M12 17h.01"/></svg>
+            </div>
+            <h2>Đã chuyển BQL</h2>
+            <p>Ảnh của bạn có dấu hiệu nguy hiểm. Hệ thống đã chuyển phản ánh tới BQL với mức ưu tiên khẩn cấp nhất.</p>
+            <div class="notice emergency" style="margin-top:18px;width:100%;text-align:left">Dự kiến xử lý: <strong>trong vòng 5 phút</strong>.</div>
+            <button class="secondary full" style="margin-top:12px" onclick="openDetail()">Xem chi tiết ticket</button>
+          </div>
+        </section>
+
+        <!-- DETAIL -->
+        <section class="page" data-page="detail">
+          <div class="topbar">
+            <button class="icon-btn" onclick="go('home')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><path d="m15 18-6-6 6-6"/></svg></button>
+            <div style="font-size:14px;font-weight:650">Chi tiết ticket</div>
+            <div style="width:38px"></div>
+          </div>
+          <div class="detail-hero">
+            <div class="detail-title-row"><div><div class="ticket-id">#TK-1040</div><div class="detail-title">Rò nước</div><div class="detail-sub">A · Tầng 7 · Hành lang</div></div><span class="badge info">Đã gán</span></div>
+          </div>
+          <div class="section">
+            <div class="section-title" style="margin-bottom:10px">Tiến độ xử lý</div>
+            <div class="timeline">
+              <div class="tl-item done"><span class="tl-dot"></span><div><div class="tl-name">Đã tiếp nhận</div><div class="tl-note">18:42 · Ticket được tạo</div></div></div>
+              <div class="tl-item done"><span class="tl-dot"></span><div><div class="tl-name">Đã phân loại</div><div class="tl-note">18:43 · Rò nước</div></div></div>
+              <div class="tl-item done"><span class="tl-dot"></span><div><div class="tl-name">Đã gán kỹ thuật viên</div><div class="tl-note">18:52 · KTV Hùng</div></div></div>
+              <div class="tl-item"><span class="tl-dot"></span><div><div class="tl-name">Đang xử lý</div><div class="tl-note">Đang chờ cập nhật từ kỹ thuật viên</div></div></div>
+            </div>
+          </div>
+          <div class="section">
+            <div class="section-title" style="margin-bottom:10px">Thông tin</div>
+            <div class="info-list">
+              <div class="info-row"><span>Category</span><strong>Rò nước</strong></div>
+              <div class="info-row"><span>Mức ưu tiên</span><strong>P2 · xử lý trước 3 giờ</strong></div>
+              <div class="info-row"><span>Kỹ thuật viên</span><strong>KTV Hùng</strong></div>
+              <div class="info-row"><span>Thuộc cụm</span><strong>#C-07 · 3 ticket</strong></div>
+            </div>
+          </div>
+          <div class="section">
+            <button class="secondary full" onclick="cancelTicket()">Huỷ ticket</button>
+            <div class="hint" style="text-align:center">Chỉ có thể huỷ khi ticket vẫn ở trạng thái “Mới”.</div>
+          </div>
+        </section>
+
+        <!-- HISTORY -->
+        <section class="page" data-page="history">
+          <div class="topbar"><div><div class="eyebrow">RESIDENT</div><div style="font-size:15px;font-weight:650">Lịch sử phản ánh</div></div><div style="width:38px"></div></div>
+          <div class="section" style="margin-top:16px">
+            <div class="ticket-list">
+              <div class="ticket" onclick="openDetail()"><div class="ticket-top"><span class="ticket-id">#TK-1040 · 13/08 18:42</span><span class="badge info">Đã gán</span></div><div class="ticket-title">Rò nước</div><div class="ticket-meta">A · T7 · Hành lang</div></div>
+              <div class="ticket" onclick="openDetail()"><div class="ticket-top"><span class="ticket-id">#TK-1036 · 12/08 20:16</span><span class="badge success">Hoàn tất</span></div><div class="ticket-title">Hỏng đèn</div><div class="ticket-meta">A · T7 · Hành lang</div></div>
+              <div class="ticket" onclick="openDetail()"><div class="ticket-top"><span class="ticket-id">#TK-0988 · 08/08 09:34</span><span class="badge success">Hoàn tất</span></div><div class="ticket-title">Điều hoà khu vực chung</div><div class="ticket-meta">Sảnh tầng 1</div></div>
+            </div>
+          </div>
+        </section>
+
+        <!-- NOTIFICATIONS -->
+        <section class="page" data-page="notifications">
+          <div class="topbar"><div><div class="eyebrow">RESIDENT</div><div style="font-size:15px;font-weight:650">Thông báo</div></div><span class="badge info">1 mới</span></div>
+          <div class="notification unread" onclick="openDetail()"><div class="noti-top"><span class="noti-title">Kỹ thuật viên đã nhận việc</span><span class="noti-time">18:52</span></div><div class="noti-body">#TK-1040 · KTV Hùng đã được gán xử lý phản ánh “Rò nước”.</div></div>
+          <div class="notification"><div class="noti-top"><span class="noti-title">Ticket đã hoàn tất</span><span class="noti-time">Hôm qua</span></div><div class="noti-body">#TK-1036 · Sự cố đèn hành lang đã được xử lý.</div></div>
+        </section>
+
+        <!-- PROFILE -->
+        <section class="page" data-page="profile">
+          <div class="topbar"><div><div class="eyebrow">RESIDENT</div><div style="font-size:15px;font-weight:650">Tôi</div></div><div style="width:38px"></div></div>
+          <div class="profile-card">
+            <div class="row gap12"><div class="avatar">HT</div><div><div class="profile-name">Trịnh Huyền Thư</div><div class="profile-sub">+84 912 345 678</div></div></div>
+          </div>
+          <div class="section">
+            <div class="info-list">
+              <div class="info-row"><span>Căn hộ</span><strong>A-0706</strong></div>
+              <div class="info-row"><span>Tòa</span><strong>Tòa A</strong></div>
+              <div class="info-row"><span>Trạng thái liên kết</span><strong style="color:var(--success)">Đã xác minh</strong></div>
+            </div>
+          </div>
+        </section>
+      </main>
+
+      <nav class="bottom-nav" id="bottomNav">
+        <button class="nav-item active" data-nav="home" onclick="go('home')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 11.5 12 4l9 7.5"/><path d="M5 10v10h14V10"/><path d="M9 20v-6h6v6"/></svg><span>Trang chủ</span>
+        </button>
+        <button class="nav-item" data-nav="history" onclick="go('history')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 12a9 9 0 109-9 9 9 0 00-8.5 6"/><path d="M3 4v5h5M12 7v5l3 2"/></svg><span>Lịch sử</span>
+        </button>
+        <button class="nav-item" data-nav="notifications" onclick="go('notifications')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M18 8a6 6 0 10-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9"/><path d="M10 21h4"/></svg><span>Thông báo</span>
+        </button>
+        <button class="nav-item" data-nav="profile" onclick="go('profile')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0116 0"/></svg><span>Tôi</span>
+        </button>
+      </nav>
+    </div>
+  </div>
+</div>
+
+<script>
+const pages=[...document.querySelectorAll('.page')];
+const mainApp=document.getElementById('mainApp');
+const authPage=document.getElementById('authPage');
+const bottomNav=document.getElementById('bottomNav');
+
+function go(name){
+  pages.forEach(p=>p.classList.toggle('active',p.dataset.page===name));
+  const primary=['home','history','notifications','profile'];
+  document.querySelectorAll('.nav-item').forEach(n=>n.classList.toggle('active',n.dataset.nav===name));
+  bottomNav.classList.toggle('hidden',!primary.includes(name) && name!=='detail');
+  if(name==='detail') bottomNav.classList.add('hidden');
+  document.querySelector('.screen').scrollTop=0;
+}
+function openReport(){go('report')}
+function submitReport(){
+  go('analysis');
+  setTimeout(()=>go('question'),1400);
+}
+function answerQuestion(){
+  go('analysis');
+  setTimeout(()=>go('detail'),1200);
+}
+function openDetail(){go('detail')}
+function pick(el){
+  document.querySelectorAll('.option').forEach(o=>o.classList.remove('selected'));
+  el.classList.add('selected');
+}
+function cancelTicket(){
+  alert('Trong prototype này, #TK-1040 đã qua trạng thái “Mới” nên không thể huỷ.');
+}
+function showOtp(){document.getElementById('otpBox').classList.remove('hidden')}
+function enterApp(){
+  authPage.classList.add('hidden');
+  mainApp.classList.remove('hidden');
+  go('home');
+}
+// demo starts logged in; run demoLogin() from console or append ?auth=1
+if(location.search.includes('auth=1')){
+  mainApp.classList.add('hidden');
+  authPage.classList.remove('hidden');
+}
+</script>
+</body>
+</html>

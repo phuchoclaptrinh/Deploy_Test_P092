@@ -1,0 +1,107 @@
+{
+  "dataset_version": "v4-concrete-116-2026-08-22",
+  "total_cases": 116,
+  "clusters": [
+    {
+      "code": "A1",
+      "name": "Agent — Nội dung, ảnh và Category",
+      "case_count": 36,
+      "valid_abstract_combinations": 3450
+    },
+    {
+      "code": "A2",
+      "name": "Agent — Grouping và sự cố đang xử lý",
+      "case_count": 14,
+      "valid_abstract_combinations": 48
+    },
+    {
+      "code": "A3",
+      "name": "Agent — Red flag và tương tác Cư dân",
+      "case_count": 26,
+      "valid_abstract_combinations": 156
+    },
+    {
+      "code": "B1",
+      "name": "LLM — DIRECT",
+      "case_count": 20,
+      "valid_abstract_combinations": 27
+    },
+    {
+      "code": "B2",
+      "name": "LLM — PROPOSAL",
+      "case_count": 20,
+      "valid_abstract_combinations": 16
+    }
+  ],
+  "evaluation_targets": {
+    "ANALYSIS_EXTRACTION_AND_ROUTING": 36,
+    "DUPLICATE_AND_GROUPING_LOOP": 14,
+    "RED_FLAG_AND_RESIDENT_INTERACTION": 26,
+    "ASSIGNMENT_DIRECT_ORCHESTRATION": 20,
+    "ASSIGNMENT_PROPOSAL_ORCHESTRATION": 20
+  },
+  "category_recognition_coverage": {
+    "WATER_LEAK": [
+      "A1-001",
+      "A1-004",
+      "A1-014",
+      "A1-015",
+      "A1-016",
+      "A1-022",
+      "A1-025",
+      "A1-033"
+    ],
+    "ELECTRICAL_SHORT": [
+      "A1-002",
+      "A1-016",
+      "A1-028"
+    ],
+    "ELEVATOR": [
+      "A1-006",
+      "A1-017",
+      "A1-024",
+      "A1-031",
+      "A1-034"
+    ],
+    "SERIOUS_SECURITY_DISORDER": [
+      "A1-036"
+    ],
+    "LOCK_DOOR": [
+      "A1-010",
+      "A1-018",
+      "A1-020"
+    ],
+    "HVAC": [
+      "A1-003",
+      "A1-010",
+      "A1-015",
+      "A1-021",
+      "A1-029",
+      "A1-033"
+    ],
+    "LOCAL_POWER_OUTAGE": [
+      "A1-007",
+      "A1-023"
+    ],
+    "STRUCTURAL_ISSUE": [
+      "A1-009",
+      "A1-020"
+    ],
+    "COMMON_LIGHT": [
+      "A1-003",
+      "A1-008",
+      "A1-019",
+      "A1-030"
+    ],
+    "ODOR_HYGIENE": [
+      "A1-012",
+      "A1-021",
+      "A1-022",
+      "A1-032"
+    ],
+    "NOISE_NEIGHBOR": [
+      "A1-011",
+      "A1-024"
+    ]
+  }
+}

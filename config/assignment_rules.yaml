@@ -1,0 +1,37 @@
+# Rule-based technician selection (RULE_ENGINE_V1).
+#
+# Read by src/assignment_rules/config.py. Every key may be overridden by an
+# environment variable named ASSIGNMENT_RULE_<KEY_IN_UPPER_CASE>, so a hotfix
+# does not need a file edit inside a container image.
+#
+# `null` means "no limit". The shipped defaults are deliberately limitless:
+# turning the LLM off must not change who gets work on day one. Fill the caps
+# in once you know what a real technician workload looks like.
+
+# Written to ai_assignment_jobs.completed_model and to the proposal rows, so a
+# coordinator reading an old decision can tell which rule set produced it.
+# Bump it whenever a change here would make yesterday's decision come out
+# differently.
+rule_version: RULE_ENGINE_V1
+
+# Hard filter — how much work one technician may already be holding before the
+# engine stops handing them more. Compared against the *projected* load, so a
+# technician picked earlier in the same batch already counts.
+max_active_assignments: null
+
+# Per-priority caps. Only the cap matching the priority of the work item being
+# placed is checked; `max_active_p3_assignments` is the "urgent workload" limit
+# the business rules ask for.
+max_active_p1_assignments: null
+max_active_p2_assignments: null
+max_active_p3_assignments: null
+
+# P3 promises five minutes (nghiệp vụ §0.1). When every eligible candidate is
+# already over a cap, `true` places the P3 work item anyway and says so in the
+# decision reason; `false` returns NO_SUITABLE_CANDIDATE and sends it to the
+# manual queue. Never applies to P1/P2.
+allow_p3_overload_when_all_capped: true
+
+# Third key of the ranking: whoever has gone longest without being assigned
+# wins a tie on load. Turn off to fall back to technician_id order alone.
+tie_break_on_last_assigned_at: true

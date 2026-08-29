@@ -1,0 +1,24 @@
+fastapi==0.141.1
+uvicorn==0.52.1
+pydantic==2.13.4
+pydantic-settings==2.14.2
+python-dotenv==1.2.2
+httpx==0.28.1
+PyJWT[crypto]==2.13.0
+langchain==1.3.14
+langchain-openai==1.4.1
+# Imported directly by src/services/llm.py and the assignment model
+# client; pinned here rather than inherited so an upgrade of langchain
+# cannot move the SDK the fallback provider runs on.
+langchain-anthropic==1.5.4
+anthropic==0.121.0
+langgraph==1.2.10
+# Tracing for both agents. Optional at runtime: with no BRAINTRUST_API_KEY the
+# integration is a no-op, so this is a dependency of the observability wiring
+# rather than of the application behaviour.
+braintrust==0.34.0
+SQLAlchemy==2.0.51
+alembic==1.19.0
+psycopg[binary]==3.3.4
+# config/assignment_rules.yaml, read by src/assignment_rules/config.py.
+PyYAML==6.0.3

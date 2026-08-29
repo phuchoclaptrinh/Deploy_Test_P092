@@ -1,0 +1,41 @@
+{
+  "id": "/resident",
+  "name": "FixIt Cư dân",
+  "short_name": "FixIt",
+  "description": "Gửi và theo dõi phản ánh tại căn hộ",
+  "lang": "vi",
+  "start_url": "/resident",
+  "scope": "/resident",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#f7f8fa",
+  "theme_color": "#1d4ed8",
+  "categories": ["utilities", "productivity"],
+  "icons": [
+    {
+      "src": "/icons/resident.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icons/resident.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Gửi phản ánh",
+      "short_name": "Gửi phản ánh",
+      "url": "/resident/new",
+      "icons": [{ "src": "/icons/resident.svg", "sizes": "any", "type": "image/svg+xml" }]
+    },
+    {
+      "name": "Xem thông báo",
+      "short_name": "Thông báo",
+      "url": "/resident/notifications"
+    }
+  ]
+}

@@ -1,20 +1,21 @@
 "use client";
 
 import Link from "next/link";
-import { Bot, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, Maximize2, ShieldAlert, ShieldX, SlidersHorizontal, UserPlus, X } from "lucide-react";
+import { AlertTriangle, Bot, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, Maximize2, ShieldAlert, ShieldX, SlidersHorizontal, UserPlus, X } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { approveCoordinatorTicket, assignCoordinatorTicket, getCoordinatorTicket, listBackendCategories, listCoordinatorTechnicians, loadAttachmentImages, overrideCoordinatorClassification, rejectCoordinatorManualReview, resolveCoordinatorManualReview } from "@/api/backend.api";
-import { SeverityField } from "@/components/manager/SeverityField";
+import { RiskCriteriaField, criteriaComplete } from "@/components/manager/RiskCriteriaField";
+import { RiskBreakdown } from "@/components/manager/RiskBreakdown";
 import { PriorityBadge } from "@/components/StatusBadge";
 import { formatCategoryName } from "@/lib/category";
 import { formatTicketCode } from "@/lib/display";
 import { assignmentStatusDisplay } from "@/lib/assignmentStatus";
 import { formatDateTime } from "@/lib/managerTicket";
-import { P3_PENDING_LABEL, P3_PENDING_LOCKED_HINT, P3_PENDING_NOTICE, managerControls } from "@/lib/p3Review";
-import { formatSeverity, type TicketSeverity } from "@/lib/severity";
+import { EMERGENCY_PENDING_LABEL, EMERGENCY_PENDING_LOCKED_HINT, EMERGENCY_PENDING_NOTICE, managerControls } from "@/lib/emergencyReview";
+import { OVERRIDE_PRIORITIES, PRIORITY_LABELS, formatRiskScore, isEmergency } from "@/lib/risk";
 import type { TicketImage } from "@/lib/types";
-import type { CoordinatorCategory, CoordinatorTicket, TechnicianSummary } from "@/types/api";
+import type { CoordinatorCategory, CoordinatorTicket, TechnicianSummary, BlockerCode, RiskCriteriaInput } from "@/types/api";
 
 type Mode = "none" | "approve" | "override" | "assign" | "manual";
 type PanelImage = TicketImage & { source: "resident" | "technician" };
@@ -91,11 +92,18 @@ export function TicketDetailPanel({ ticketId, onClose, onUpdated }: Props) {
   // A ticket held at the emergency gate is *also* in MANUAL_REVIEW, so the
   // generic label and the generic form would both be wrong for it. One shared
   // predicate decides that for every management surface.
-  const { p3Pending, canApprove, canAssign, canOverride, canManualReview } = managerControls(ticket);
-  const manualReview = !p3Pending && ticket.classification_status === "MANUAL_REVIEW";
+  const { emergencyPending, canApprove, canAssign, canOverride, canManualReview } = managerControls(ticket);
+  const manualReview = !emergencyPending && ticket.classification_status === "MANUAL_REVIEW";
   const reporter = ticket.reporter;
-  const analysisNote = ticket.latest_analysis?.ai_reason?.trim();
-  const displayStatus = panelDisplayStatus(ticket, p3Pending, manualReview);
+  // A run that failed technically carries an `error_code` and never reached a
+  // business conclusion, so it has no analysis note to show. Rows written before
+  // the fix still hold the raw exception in `ai_reason` -- driver message, SQL,
+  // UUIDs -- and printing that under "Ghi chú phân tích của AI" reads as if the
+  // AI concluded something. The error code, never the text, decides which of the
+  // two sections below renders.
+  const analysisErrorCode = ticket.latest_analysis?.error_code?.trim();
+  const analysisNote = analysisErrorCode ? undefined : ticket.latest_analysis?.ai_reason?.trim();
+  const displayStatus = panelDisplayStatus(ticket, emergencyPending, manualReview);
   const timeline = latestTimeline(ticket);
 
   return <aside className="ticketDetailPanel" aria-label={`Chi tiết ${formatTicketCode(ticket.id)}`}>
@@ -104,7 +112,7 @@ export function TicketDetailPanel({ ticketId, onClose, onUpdated }: Props) {
       <div className="ticketPanelStatus">
         <span className={`badge managerTableStatus ${displayStatus.tone}`}>{displayStatus.label}</span>
         {ticket.priority && <PriorityBadge priority={ticket.priority} />}
-        {ticket.red_flag_detected && <span className="badge danger">Cờ đỏ</span>}
+        {isEmergency(ticket.priority) && <span className="badge danger">BQL xử lý thủ công</span>}
       </div>
 
       {/* No attachment means no image region at all - an empty frame says nothing. */}
@@ -123,6 +131,12 @@ export function TicketDetailPanel({ ticketId, onClose, onUpdated }: Props) {
         <p>{ticket.completion_note}</p>
       </section>}
 
+      {analysisErrorCode && <section className="ticketPanelAiError">
+        <header><AlertTriangle size={15} /><span>Phân tích tự động không hoàn tất</span></header>
+        <p>Hệ thống gặp lỗi kỹ thuật nên chưa phân loại được ticket này. Mức ưu tiên và điểm rủi ro có thể đang trống — hãy đánh giá thủ công thay vì dựa vào chúng, và chạy lại phân tích sau khi lỗi được khắc phục.</p>
+        <em>Mã lỗi: {analysisErrorCode}</em>
+      </section>}
+
       {analysisNote && <section className="ticketPanelAiNote">
         <header><Bot size={15} /><span>Ghi chú phân tích của AI</span></header>
         <p>{analysisNote}</p>
@@ -137,9 +151,9 @@ export function TicketDetailPanel({ ticketId, onClose, onUpdated }: Props) {
         <Meta label="Số điện thoại" value={reporter?.phone_e164 || "Chưa có"} />
         <Meta label="Vị trí sự cố" value={ticket.location_label || "Chưa xác định"} />
         <Meta label="Danh mục" value={formatCategoryName(ticket.category)} />
-        <Meta label="Mức độ nghiêm trọng" value={formatSeverity(ticket.severity)} />
         <div><span>Mức ưu tiên</span>{ticket.priority ? <PriorityBadge priority={ticket.priority} /> : <strong>Chưa xác định</strong>}</div>
-        <Meta label="Điểm" value={scoreValue(ticket)} />
+        <Meta label="Điểm rủi ro" value={scoreValue(ticket)} />
+        <Meta label="Số căn trong case" value={ticket.case_unit_count ? String(ticket.case_unit_count) : "Không thuộc case"} />
         {/* §4: the planned window is the scheduler's, and the finish is
             internal capacity arithmetic shown to Building Management only --
             never to a resident. There is no acceptance deadline any more; the
@@ -172,19 +186,19 @@ export function TicketDetailPanel({ ticketId, onClose, onUpdated }: Props) {
       {/* The full review controls -- confirm, or downgrade with a reason --
           live on the ticket page, so this sends the coordinator there rather
           than offering a second, smaller version of the same decision. */}
-      {p3Pending && <section className="ticketPanelP3">
-        <p><ShieldAlert size={15} />{P3_PENDING_NOTICE}</p>
-        <small>{P3_PENDING_LOCKED_HINT}</small>
+      {emergencyPending && <section className="ticketPanelEmergency">
+        <p><ShieldAlert size={15} />{EMERGENCY_PENDING_NOTICE}</p>
+        <small>{EMERGENCY_PENDING_LOCKED_HINT}</small>
       </section>}
 
       {error && <div className="alert error">{error}</div>}
     </div>
 
-    {p3Pending && <footer className="ticketPanelActions">
-      <Link className="button" href={`/manager/tickets/${ticket.id}`}><ShieldAlert size={16} />Duyệt mức khẩn cấp P3</Link>
+    {emergencyPending && <footer className="ticketPanelActions">
+      <Link className="button" href={`/manager/tickets/${ticket.id}`}><ShieldAlert size={16} />Duyệt mức khẩn cấp P5</Link>
     </footer>}
 
-    {!p3Pending && (canApprove || canAssign || canOverride || canManualReview) && <footer className="ticketPanelActions">
+    {!emergencyPending && (canApprove || canAssign || canOverride || canManualReview) && <footer className="ticketPanelActions">
       {canManualReview && <button className="button" type="button" onClick={() => setMode("manual")}><CheckCircle2 size={16} />Duyệt phân loại thủ công</button>}
       {canApprove && <button className="button" type="button" onClick={() => setMode("approve")}><CheckCircle2 size={16} />Duyệt phản ánh</button>}
       {canOverride && <button className="button secondary" type="button" onClick={() => setMode("override")}><SlidersHorizontal size={16} />Chỉnh phân loại</button>}
@@ -198,7 +212,7 @@ export function TicketDetailPanel({ ticketId, onClose, onUpdated }: Props) {
       </div>}
       {mode === "assign" && <AssignForm technicians={technicians} busy={busy} error={error} cancel={() => setMode("none")} submit={(technicianId) => void run(() => assignCoordinatorTicket(ticket.id, technicianId))} />}
       {mode === "override" && <OverrideForm ticket={ticket} categories={categories} busy={busy} cancel={() => setMode("none")} submit={(categoryId, priority, reason) => void run(() => overrideCoordinatorClassification(ticket.id, categoryId, priority, reason))} />}
-      {mode === "manual" && <ManualReviewForm ticket={ticket} categories={categories} busy={busy} cancel={() => setMode("none")} resolve={(categoryId, source, reason, severity) => void run(() => resolveCoordinatorManualReview(ticket.id, categoryId, source, reason, severity))} reject={(reason) => void run(() => rejectCoordinatorManualReview(ticket.id, reason))} />}
+      {mode === "manual" && <ManualReviewForm ticket={ticket} categories={categories} busy={busy} cancel={() => setMode("none")} resolve={(categoryId, source, reason, criteria, blockers) => void run(() => resolveCoordinatorManualReview(ticket.id, categoryId, source, reason, criteria, blockers))} reject={(reason) => void run(() => rejectCoordinatorManualReview(ticket.id, reason))} />}
     </ActionModal>, document.body)}
 
     {lightbox !== null && images[lightbox] && createPortal(<div className="ticketLightbox" role="dialog" aria-modal="true" aria-label="Ảnh phản ánh">
@@ -218,8 +232,8 @@ function modalTitle(mode: Mode, ticket: CoordinatorTicket) {
   return `Chỉnh phân loại · ${code}`;
 }
 
-function panelDisplayStatus(ticket: CoordinatorTicket, p3Pending: boolean, manualReview: boolean) {
-  if (p3Pending) return { label: P3_PENDING_LABEL, tone: "danger" as const };
+function panelDisplayStatus(ticket: CoordinatorTicket, emergencyPending: boolean, manualReview: boolean) {
+  if (emergencyPending) return { label: EMERGENCY_PENDING_LABEL, tone: "danger" as const };
   if (manualReview) return { label: "Chờ duyệt thủ công", tone: "warning" as const };
   if (["PENDING", "PROCESSING"].includes(ticket.classification_status)) return { label: "Đang phân tích", tone: "processing" as const };
   const assignment = assignmentStatusDisplay(ticket.active_assignment_status);
@@ -263,8 +277,7 @@ function panelTechnician(ticket: CoordinatorTicket) {
 }
 
 function scoreValue(ticket: CoordinatorTicket) {
-  if (ticket.score_total != null) return String(ticket.score_total);
-  if (ticket.red_flag_detected) return "Cờ đỏ · không tính điểm";
+  if (ticket.risk_score != null) return `${formatRiskScore(ticket.risk_score)} / 100`;
   if (["PENDING", "PROCESSING", "MANUAL_REVIEW"].includes(ticket.classification_status)) return "Chờ tính điểm";
   return "Chưa có";
 }
@@ -328,14 +341,14 @@ function OverrideForm({ ticket, categories, busy, cancel, submit }: { ticket: Co
   return <div className="modalForm">
     <div className="formGrid">
       <div className="field"><label>Danh mục mới</label><select value={category} onChange={(event) => setCategory(event.target.value)}>{categories.map((row) => <option value={row.id} key={row.id}>{formatCategoryName(row.code, row.display_name)}</option>)}</select></div>
-      <div className="field"><label>Mức ưu tiên mới</label><select value={priority} onChange={(event) => setPriority(event.target.value)}><option>P3</option><option>P2</option><option>P1</option></select></div>
+      <div className="field"><label>Mức ưu tiên mới</label><select value={priority} onChange={(event) => setPriority(event.target.value)}>{OVERRIDE_PRIORITIES.map((band) => <option value={band} key={band}>{PRIORITY_LABELS[band]}</option>)}</select><small className="helper">Mức khẩn cấp P5 chỉ đặt được qua cổng duyệt khẩn cấp.</small></div>
     </div>
     <div className="field"><label>Lý do điều chỉnh *</label><textarea placeholder="Nhập lý do để lưu vào lịch sử thay đổi..." value={reason} onChange={(event) => setReason(event.target.value)} /></div>
     <div className="modalActions"><button className="button secondary" type="button" disabled={busy} onClick={cancel}>Hủy</button><button className="button" type="button" disabled={busy || !category || !changed || reason.trim().length < 3} onClick={() => submit(category, priority, reason.trim())}>Lưu thay đổi</button></div>
   </div>;
 }
 
-function ManualReviewForm({ ticket, categories, busy, cancel, resolve, reject }: { ticket: CoordinatorTicket; categories: CoordinatorCategory[]; busy: boolean; cancel: () => void; resolve: (categoryId: string, source: "IMAGE" | "TEXT" | "OTHER", reason: string, severity: TicketSeverity | null) => void; reject: (reason: string) => void }) {
+function ManualReviewForm({ ticket, categories, busy, cancel, resolve, reject }: { ticket: CoordinatorTicket; categories: CoordinatorCategory[]; busy: boolean; cancel: () => void; resolve: (categoryId: string, source: "IMAGE" | "TEXT" | "OTHER", reason: string, criteria: RiskCriteriaInput | null, blockers: BlockerCode[]) => void; reject: (reason: string) => void }) {
   const analysis = ticket.latest_analysis;
   // One evidence Category per source now, not a list: the agent reports what the
   // text suggested and what the photos suggested, and never merges them.
@@ -351,11 +364,14 @@ function ManualReviewForm({ ticket, categories, busy, cancel, resolve, reject }:
   const [categoryId, setCategoryId] = useState(options[0]?.id || "");
   const [reason, setReason] = useState("BQL xác nhận kết quả phân loại.");
   const [rejectReason, setRejectReason] = useState("");
-  // No severity from the analysis means the backend has nothing to score from:
-  // the Coordinator must name one, and nothing here fills it in for them.
-  const severityMissing = !ticket.severity;
-  const [severity, setSeverity] = useState<TicketSeverity | "">("");
-  const canResolve = !busy && decision === "valid" && Boolean(categoryId) && reason.trim().length >= 3 && (!severityMissing || severity !== "");
+  // No assessment from the analysis means the backend has nothing to derive a
+  // priority from: the Coordinator scores it, and nothing here fills anything in
+  // for them.
+  const assessment = ticket.risk_assessment;
+  const scoreMissing = !assessment;
+  const [criteria, setCriteria] = useState<Partial<RiskCriteriaInput>>({});
+  const [blockers, setBlockers] = useState<BlockerCode[]>([]);
+  const canResolve = !busy && decision === "valid" && Boolean(categoryId) && reason.trim().length >= 3 && (!scoreMissing || criteriaComplete(criteria));
   const chooseSource = (next: "IMAGE" | "TEXT" | "OTHER") => {
     const list = next === "IMAGE" ? imageCategories : next === "TEXT" ? textCategories : categories;
     setSource(next);
@@ -370,10 +386,10 @@ function ManualReviewForm({ ticket, categories, busy, cancel, resolve, reject }:
         <button type="button" className={source === "OTHER" ? "active" : ""} onClick={() => { setDecision("valid"); chooseSource("OTHER"); }}>Danh mục khác</button>
       </div>
       <div className="field"><label htmlFor="panel-manual-category">Danh mục xác nhận</label><select id="panel-manual-category" value={categoryId} onChange={(event) => { setDecision("valid"); setCategoryId(event.target.value); }}>{options.map((row) => <option value={row.id} key={row.id}>{formatCategoryName(row.code, row.display_name)}</option>)}</select></div>
-      <SeverityField id="panel-manual-severity" missing={severityMissing} stored={ticket.severity} value={severity} onChange={(next) => { setDecision("valid"); setSeverity(next); }} />
+      <RiskCriteriaField missing={scoreMissing} stored={assessment} value={criteria} blockers={blockers} onChange={(next) => { setDecision("valid"); setCriteria(next); }} onBlockersChange={(next) => { setDecision("valid"); setBlockers(next); }} />
       <div className="field"><label htmlFor="panel-manual-reason">Ghi chú xác nhận</label><textarea id="panel-manual-reason" value={reason} onChange={(event) => { setDecision("valid"); setReason(event.target.value); }} /></div>
       <p className="managerManualStepHint">Hệ thống tính lại điểm số; ticket vẫn cần được duyệt trước khi phân công.</p>
-      <button className="button" type="button" disabled={!canResolve} onClick={() => resolve(categoryId, source, reason.trim(), severityMissing ? severity || null : null)}><CheckCircle2 size={16} />Xác nhận & tính lại điểm</button>
+      <button className="button" type="button" disabled={!canResolve} onClick={() => resolve(categoryId, source, reason.trim(), scoreMissing && criteriaComplete(criteria) ? criteria : null, blockers)}><CheckCircle2 size={16} />Xác nhận & tính lại điểm</button>
     </section>
     <section className={`managerManualDecisionCard invalid${decision === "invalid" ? " active" : ""}`}>
       <label className="managerManualDecisionTitle"><input type="radio" name="panel-manual-decision" checked={decision === "invalid"} onChange={() => setDecision("invalid")} /><span><strong>Xác nhận ticket không hợp lệ</strong><small>Loại ticket và gửi lý do rõ ràng cho cư dân.</small></span></label>

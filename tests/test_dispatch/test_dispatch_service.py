@@ -75,10 +75,17 @@ def test_enqueue_is_idempotent(world, automatic_on):
     assert world.db.query(DispatchEvent).count() == 1
 
 
-def test_a_p3_emergency_never_enters_the_automatic_workflow(world, automatic_on):
-    """§2 and §3 both say so, and the table refuses to carry it either way."""
-    assert queue(world, dispatchable_ticket(world, priority=Priority.P3)) is None
+def test_the_emergency_band_never_enters_the_automatic_workflow(world, automatic_on):
+    """`docs/risk_scoring_v2.md` §8, and the table refuses to carry it either way."""
+    assert queue(world, dispatchable_ticket(world, priority=Priority.P5)) is None
     assert world.db.query(DispatchEvent).count() == 0
+
+
+def test_the_bands_below_the_emergency_one_are_all_dispatchable(world, automatic_on):
+    """P3 used to be the emergency. It is now an ordinary in-shift priority, and
+    the constraint that once refused it must not still be refusing it."""
+    for priority in (Priority.P1, Priority.P2, Priority.P3, Priority.P4):
+        assert queue(world, dispatchable_ticket(world, priority=priority)) is not None
 
 
 def test_a_duplicate_or_unclassified_ticket_is_building_managements(world, automatic_on):

@@ -6,10 +6,11 @@ from uuid import UUID
 from fastapi import APIRouter, BackgroundTasks, Depends, Query, Request
 from sqlalchemy.orm import Session
 
-from src.agents.service import resume_after_p3_downgrade, run_analysis, run_case_grouping
+from src.agents.service import resume_after_emergency_downgrade, run_analysis, run_case_grouping
 from src.api.dependencies.auth import CurrentActor, require_coordinator
 from src.api.dependencies.database import get_db
-from src.models.agent_schemas import P3Decision, P3ReviewStatus
+from src.domain.assignment_guard import ticket_assignment_allowed
+from src.models.agent_schemas import EmergencyDecision, EmergencyReviewStatus
 from src.models.api.common import ApiResponse
 from src.models.api.coordinator import (
     AssignTicketRequest,
@@ -22,11 +23,12 @@ from src.models.api.coordinator import (
     CoordinatorTicketResponse,
     DuplicateDecisionRequest,
     DuplicateLinkRequest,
+    EmergencyReviewRequest,
     ManualReviewRejectRequest,
     ManualReviewResolveRequest,
     OperationalTimeoutSweepResponse,
-    P3ReviewRequest,
     RequestInformationRequest,
+    RiskAssessmentResponse,
 )
 from src.models.api.dispatch import DispatchWorkerRunResponse
 from src.models.api.tickets import TicketAttachmentResponse, TicketTimelineItem
@@ -58,18 +60,18 @@ def _available_actions(ticket) -> list[str]:
     again in the service that performs it. What this list has to get right is
     not offering something that can only fail.
 
-    The P3 branch is why it is written in this order. A ticket held at the
-    emergency gate is *also* in MANUAL_REVIEW, so a list keyed only on that
-    would hand a coordinator the generic resolve/reject form for an emergency
-    and record no decision, no reviewer and no reason when they used it.
+    The emergency branch is why it is written in this order. A ticket held at
+    the gate is *also* in MANUAL_REVIEW, so a list keyed only on that would
+    hand a coordinator the generic resolve/reject form for an emergency and
+    record no decision, no reviewer and no reason when they used it.
     """
     actions: list[str] = []
     if ticket.status == TicketStatus.LINKED_DUPLICATE:
         return []
-    if _p3_review_pending(ticket):
+    if _emergency_review_pending(ticket):
         # Exactly one action, and it is the only one the backend will accept:
         # confirm the emergency, or downgrade it with a reason.
-        return ["REVIEW_P3"]
+        return ["REVIEW_EMERGENCY"]
     if ticket.classification_status == ClassificationStatus.MANUAL_REVIEW:
         # Including a DUPLICATE_UNCERTAIN ticket, which keeps the generic
         # actions alongside its own duplicate-decision panel. That state is
@@ -81,17 +83,23 @@ def _available_actions(ticket) -> list[str]:
         if ticket.classification_status == ClassificationStatus.RESOLVED and ticket.category_id and ticket.priority:
             actions.append("APPROVE")
         actions.append("OVERRIDE_CLASSIFICATION")
-    if ticket.status == TicketStatus.APPROVED and not any(assignment.is_active for assignment in ticket.assignments):
+    if (
+        ticket.status == TicketStatus.APPROVED
+        and ticket_assignment_allowed(ticket)
+        and not any(assignment.is_active for assignment in ticket.assignments)
+    ):
+        # Not offered for a P5. Every path behind the button refuses it, and a
+        # button that can only fail is worse than no button.
         actions.append("ASSIGN")
     return actions
 
 
-def _p3_review_pending(ticket) -> bool:
+def _emergency_review_pending(ticket) -> bool:
     """Read off the loaded runs rather than re-querying.
 
     `coordinator_ticket_response` already has them for `latest_analysis`, and
     the authoritative version of this question lives in
-    `src.services.p3_review_guard` -- this is the presentation-side echo of it.
+    `src.services.emergency_review_guard` -- this is the presentation-side echo of it.
     """
     succeeded = [
         run for run in ticket.ai_analysis_runs if run.status is AnalysisRunStatus.SUCCEEDED
@@ -102,7 +110,7 @@ def _p3_review_pending(ticket) -> bool:
     # nothing and must not read as "the gate is closed now" while the backend
     # still refuses every action.
     run = max(succeeded, key=lambda item: item.run_number)
-    return run.p3_review_status == P3ReviewStatus.PENDING.value
+    return run.emergency_review_status == EmergencyReviewStatus.PENDING.value
 
 
 _display_code = ticket_display_code
@@ -121,11 +129,106 @@ def _active_assignment(ticket):
 _CANDIDATE_FIELDS = frozenset(CoordinatorDuplicateCandidate.model_fields)
 
 
+def _case_unit_count(ticket) -> int | None:
+    """How many apartments the ticket's open case has confirmed.
+
+    Read off the assessment rather than queried: the revision recorded the count
+    it was scored against, and re-counting here could show a number the priority
+    beside it was not derived from.
+    """
+    assessment = _current_assessment(ticket)
+    return assessment.confirmed_affected_unit_count if assessment else None
+
+
+def _current_assessment(ticket):
+    """The revision the ticket cache was written from, off the loaded rows.
+
+    Read from the relationship rather than by id so this costs no extra query
+    on a list endpoint that already loaded the ticket's assessments.
+    """
+    if ticket.current_risk_assessment_id is None:
+        return None
+    for assessment in ticket.risk_assessments:
+        if assessment.id == ticket.current_risk_assessment_id:
+            return assessment
+    return None
+
+
+def _risk_assessment_response(assessment) -> RiskAssessmentResponse | None:
+    """One revision, flattened for the screen. Never recomputes anything.
+
+    Whatever is on the row is what a coordinator sees, including a score that a
+    later rubric version would compute differently -- the row records what was
+    decided, not what would be decided today.
+    """
+    if assessment is None:
+        return None
+    evidence = _risk_evidence_response(assessment.evidence)
+    return RiskAssessmentResponse(
+        id=assessment.id,
+        revision_no=assessment.revision_no,
+        source=assessment.source.value,
+        human_safety_score=assessment.human_safety_score,
+        property_spread_score=assessment.property_spread_score,
+        essential_function_score=assessment.essential_function_score,
+        deterioration_speed_score=assessment.deterioration_speed_score,
+        ai_scope_score=assessment.ai_scope_score,
+        backend_scope_score=assessment.backend_scope_score,
+        effective_scope_score=assessment.effective_scope_score,
+        confirmed_affected_unit_count=assessment.confirmed_affected_unit_count,
+        blocker_codes=list(assessment.blocker_codes or []),
+        evidence=evidence,
+        unknown_facts=list(assessment.unknown_facts or []),
+        risk_score=float(assessment.risk_score),
+        score_priority=assessment.score_priority,
+        blocker_floor=assessment.blocker_floor,
+        final_priority=assessment.final_priority,
+        rubric_version=assessment.rubric_version,
+        case_id_snapshot=assessment.case_id_snapshot,
+        case_density_snapshot=assessment.case_density_snapshot,
+        override_reason=assessment.override_reason,
+        reviewed_by=assessment.reviewed_by,
+        created_at=assessment.created_at,
+    )
+
+
+def _risk_evidence_response(evidence) -> dict[str, list[str] | dict[str, list[str]]]:
+    """Preserve blocker evidence as a code -> lines mapping.
+
+    Criterion evidence is stored as simple line lists, but `blockers` is nested
+    because each blocker sets a different floor. Flattening that nested object
+    leaves the UI with only the code and no lines, and the P5 review panel
+    crashes while trying to render it.
+    """
+    payload: dict[str, list[str] | dict[str, list[str]]] = {}
+    for key, value in (evidence or {}).items():
+        if key == "blockers":
+            if isinstance(value, dict):
+                payload[key] = {str(code): _evidence_lines(lines) for code, lines in value.items()}
+            else:
+                payload[key] = {"UNATTRIBUTED": _evidence_lines(value)}
+            continue
+        payload[key] = _evidence_lines(value)
+    return payload
+
+
+def _evidence_lines(value) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, list):
+        return [str(item) for item in value if str(item).strip()]
+    if isinstance(value, tuple):
+        return [str(item) for item in value if str(item).strip()]
+    if isinstance(value, str):
+        return [value] if value.strip() else []
+    return [str(value)]
+
+
 def _latest_analysis_summary(ticket) -> CoordinatorAnalysisSummary | None:
     """What the last analysis concluded, with the evidence behind it.
 
     For a DUPLICATE_UNCERTAIN ticket this is the whole review packet: the final
-    category and severity, why the ticket was classified that way, why the
+    category and the risk assessment, why the ticket was classified that way, why the
     duplicate verdict is uncertain, and the exact candidate snapshot the Agent
     judged. Paired with `agent_questions`, it is everything management needs to
     confirm or reject the duplicate without re-running anything.
@@ -139,9 +242,7 @@ def _latest_analysis_summary(ticket) -> CoordinatorAnalysisSummary | None:
         final_category_id=run.final_category_id,
         text_category_id=run.text_category_id,
         image_category_id=run.image_category_id,
-        severity=run.severity,
-        severity_source=run.severity_source,
-        red_flag=run.red_flag,
+        risk_assessment=_risk_assessment_response(run.risk_assessment),
         ai_reason=run.ai_reason,
         duplicate_verdict=run.duplicate_verdict,
         duplicate_reason=run.duplicate_reason,
@@ -152,11 +253,11 @@ def _latest_analysis_summary(ticket) -> CoordinatorAnalysisSummary | None:
             for item in (run.duplicate_candidates or [])
         ],
         grouping_status=run.grouping_status,
-        p3_review_status=run.p3_review_status,
-        p3_decision=run.p3_decision,
-        p3_decision_reason=run.p3_decision_reason,
-        p3_reviewed_by=run.p3_reviewed_by,
-        p3_reviewed_at=run.p3_reviewed_at,
+        emergency_review_status=run.emergency_review_status,
+        emergency_decision=run.emergency_decision,
+        emergency_decision_reason=run.emergency_decision_reason,
+        emergency_reviewed_by=run.emergency_reviewed_by,
+        emergency_reviewed_at=run.emergency_reviewed_at,
         ai_priority_before_review=run.ai_priority_before_review,
         effective_priority=run.effective_priority,
         model_version=run.model_version,
@@ -224,9 +325,9 @@ def coordinator_ticket_response(ticket) -> CoordinatorTicketResponse:
         category_id=ticket.category_id,
         category=ticket.category.code if ticket.category else None,
         priority=ticket.priority,
-        severity=ticket.severity,
-        red_flag_detected=ticket.red_flag_detected,
-        score_total=float(ticket.score_total) if ticket.score_total is not None else None,
+        risk_score=float(ticket.risk_score) if ticket.risk_score is not None else None,
+        risk_assessment=_risk_assessment_response(_current_assessment(ticket)),
+        case_unit_count=_case_unit_count(ticket),
         sla_started_at=ticket.sla_started_at,
         sla_due_at=ticket.sla_due_at,
         created_at=ticket.created_at,
@@ -369,35 +470,35 @@ def decide_duplicate(
 
 
 @router.post(
-    "/tickets/{ticket_id}/p3-review",
+    "/tickets/{ticket_id}/emergency-review",
     response_model=ApiResponse[CoordinatorTicketResponse],
-    summary="Duyệt phản ánh ở mức khẩn cấp P3",
+    summary="Duyệt phản ánh ở mức khẩn cấp P5",
     description=(
-        "Bắt buộc với mọi phản ánh AI xếp mức P3. Xác nhận P3 thì phản ánh được công bố theo quy "
-        "trình khẩn cấp và dừng ở đó: không tra trùng, không gộp cụm. Hạ mức xuống P1/P2 thì bắt "
+        "Bắt buộc với mọi phản ánh AI xếp mức P5. Xác nhận P5 thì phản ánh được Ban quản lý xử "
+        "lý thủ công và dừng ở đó: không gộp cụm, không phân việc. Hạ mức xuống P1-P4 thì bắt "
         "buộc có lý do, và phản ánh tiếp tục quy trình từ bước tra cứu phản ánh trùng."
     ),
 )
-def review_p3(
+def review_emergency(
     request: Request,
     ticket_id: UUID,
-    body: P3ReviewRequest,
+    body: EmergencyReviewRequest,
     background_tasks: BackgroundTasks,
     actor: CurrentActor = Depends(require_coordinator),
     db: Session = Depends(get_db),
 ):
-    AgentBackendService(db).resolve_p3_review(
+    AgentBackendService(db).resolve_emergency_review(
         actor.user.user_id,
         ticket_id,
         decision=body.decision,
         priority=body.priority,
         reason=body.reason,
     )
-    if body.decision is P3Decision.DOWNGRADE_SEVERITY:
+    if body.decision is EmergencyDecision.DOWNGRADE_PRIORITY:
         # The only way back into the pipeline. Queued exactly once: the review
         # can no longer be PENDING, so a second call is refused before it gets
         # this far.
-        background_tasks.add_task(resume_after_p3_downgrade, ticket_id)
+        background_tasks.add_task(resume_after_emergency_downgrade, ticket_id)
     return _ok(request, coordinator_ticket_response(CoordinatorService(db).get_ticket(ticket_id)))
 
 

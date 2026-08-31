@@ -9,6 +9,7 @@ from src.api.routes.coordinator import (
     clusters,
     dispatch,
     reports,
+    simulation,
     technicians,
     visual_assignment,
 )
@@ -22,3 +23,5 @@ router.include_router(audit.router)
 router.include_router(reports.router)
 router.include_router(visual_assignment.router)
 router.include_router(dispatch.router)
+# Read-only planning tool: it replays tickets in memory and writes nothing.
+router.include_router(simulation.router)

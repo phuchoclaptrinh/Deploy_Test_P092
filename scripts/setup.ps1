@@ -194,8 +194,8 @@ if ($frontendReady) {
 }
 Write-Host "  $step. Kiem tra:  http://localhost:8000/ready  va  http://localhost:3000"
 Write-Host ""
-Write-Host "Neu DB chua co bang: dat ALLOW_LIVE_MIGRATION=true trong .env roi chay"
-Write-Host "  .venv\Scripts\python.exe -m alembic upgrade head"
+Write-Host "Neu DB chua co bang: bat co ngay tren lenh, dung de san trong .env"
+Write-Host "  `$env:ALLOW_LIVE_MIGRATION='true'; .venv\Scripts\python.exe -m alembic upgrade head"
 Write-Host ""
 Write-Host "LUU Y: luon dung 'python -m uvicorn', dung goi 'uvicorn' tran." -ForegroundColor Yellow
 Write-Host "       Dang '-m' bat buoc chay bang interpreter cua .venv nen khong the"

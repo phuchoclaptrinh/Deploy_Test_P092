@@ -61,12 +61,10 @@ def test_analysis_runs_store_the_v4_payload_and_finalize_key():
     table = Base.metadata.tables["ai_analysis_runs"]
     assert {
         "duplicate",
-        "red_flag_relation",
         "duplicate_candidates",
         "idempotency_key",
         "payload_hash",
         "contract_version",
-        "rule_version_id",
     } <= set(table.c.keys())
     # §1.7.9 backed by the database, not only by the row lock.
     assert "uq_ai_analysis_runs_one_success_per_session" in _index_names(table)
@@ -158,7 +156,7 @@ def test_dispatch_events_are_the_durable_queue():
         "ck_dispatch_events_open_matches_status",
         # §2/§3: P3 must never enter the automatic workflow, and the table that
         # would carry it refuses to.
-        "ck_dispatch_events_no_p3",
+        "ck_dispatch_events_no_emergency",
         "ck_dispatch_events_claim_has_expiry",
         "ck_dispatch_events_assigned_shape",
         "ck_dispatch_events_escalated_shape",

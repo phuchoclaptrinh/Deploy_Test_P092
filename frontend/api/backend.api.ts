@@ -1,7 +1,6 @@
 import { apiRequest, uploadToSignedUrl } from "@/api/client";
-import type { AtRiskDecision, AttachmentDownload, AutoAssignmentToggle, BackendAuditLog, BackendNotification, CoordinatorCategory, CoordinatorCluster, CoordinatorClusterApproveResult, CoordinatorClusterAssignResult, CoordinatorResidentSummary, CoordinatorTicket, CreatedTicket, DispatchEvent, DispatchWorkerRun, LocationItem, ManagerAccount, OperationalTimeoutSweep, P3Decision, ResidentAgentQuestion, ResidentCategory, ResidentLifecycleGroup, ResidentTicket, SignedUpload, SlaPerformanceReport, TechnicianAssignment, TechnicianAvailability, TechnicianProductivityReport, TechnicianQueue, TechnicianSummary, TicketAttachment, TicketList, TicketPriority, TicketSummaryReport, VisualBoard, VisualConfirmResult, VisualPlacement } from "@/types/api";
+import type { SimulationRun, SimulationRunRequest, AtRiskDecision, AttachmentDownload, AutoAssignmentToggle, BackendAuditLog, BackendNotification, CoordinatorCategory, CoordinatorCluster, CoordinatorClusterApproveResult, CoordinatorClusterAssignResult, CoordinatorResidentSummary, CoordinatorTicket, CreatedTicket, DispatchEvent, DispatchWorkerRun, LocationItem, ManagerAccount, OperationalTimeoutSweep, EmergencyDecision, RiskCriteriaInput, ResidentAgentQuestion, ResidentCategory, ResidentLifecycleGroup, ResidentTicket, SignedUpload, SlaPerformanceReport, TechnicianAssignment, TechnicianAvailability, TechnicianProductivityReport, TechnicianQueue, TechnicianSummary, TicketAttachment, TicketList, TicketPriority, TicketSummaryReport, VisualBoard, VisualConfirmResult, VisualPlacement } from "@/types/api";
 import type { TicketImage } from "@/lib/types";
-import type { TicketSeverity } from "@/lib/severity";
 export const listLocations = () => apiRequest<LocationItem[]>("/catalog/locations", { role: "resident" });
 export const listManagerLocations = () => apiRequest<LocationItem[]>("/catalog/locations", { role: "manager" });
 export type ResidentTicketQuery = {
@@ -49,10 +48,10 @@ export const getResidentAgentQuestion = (id: string, fresh = false) => apiReques
 export const cancelResidentBackendTicket = (id: string) => apiRequest<ResidentTicket>(`/tickets/${id}/cancel`, { role: "resident", method: "POST" });
 export const getCoordinatorTicket = (id: string) => apiRequest<CoordinatorTicket>(`/coordinator/tickets/${id}`, { role: "manager" });
 export const approveCoordinatorTicket = (id: string) => apiRequest<CoordinatorTicket>(`/coordinator/tickets/${id}/approve`, { role: "manager", method: "POST" });
-// `severity` is sent only when the report never got one from the analysis: the
-// backend keeps a stored severity and rejects a manual review without one when
+// `criteria` is sent only when the report was never scored: the backend keeps a
+// stored assessment and rejects a manual review without one when
 // there is nothing to keep. The key is omitted rather than sent as null.
-export const resolveCoordinatorManualReview = (id: string, categoryId: string, resolutionSource: "IMAGE" | "TEXT" | "OTHER", reason: string, severity?: TicketSeverity | null) => apiRequest<CoordinatorTicket>(`/coordinator/tickets/${id}/manual-review/resolve`, { role: "manager", method: "POST", body: JSON.stringify({ category_id: categoryId, resolution_source: resolutionSource, reason, ...(severity ? { severity } : {}) }) });
+export const resolveCoordinatorManualReview = (id: string, categoryId: string, resolutionSource: "IMAGE" | "TEXT" | "OTHER", reason: string, criteria?: RiskCriteriaInput | null, blockers: string[] = []) => apiRequest<CoordinatorTicket>(`/coordinator/tickets/${id}/manual-review/resolve`, { role: "manager", method: "POST", body: JSON.stringify({ category_id: categoryId, resolution_source: resolutionSource, reason, ...(criteria ? { criteria, blockers } : {}) }) });
 export const rejectCoordinatorManualReview = (id: string, reason: string) => apiRequest<CoordinatorTicket>(`/coordinator/tickets/${id}/manual-review/reject`, { role: "manager", method: "POST", body: JSON.stringify({ reason }) });
 export const overrideCoordinatorClassification = (id: string, categoryId: string, priority: string, reason: string) => apiRequest<CoordinatorTicket>(`/coordinator/tickets/${id}/classification`, { role: "manager", method: "PATCH", body: JSON.stringify({ category_id: categoryId, priority, reason }) });
 export const linkCoordinatorDuplicateTicket = (id: string, masterTicketId: string, reason: string) => apiRequest<CoordinatorTicket>(`/coordinator/tickets/${id}/duplicate-link`, { role: "manager", method: "POST", body: JSON.stringify({ master_ticket_id: masterTicketId, reason }), timeoutMs: 20_000 });
@@ -61,10 +60,10 @@ export const linkCoordinatorDuplicateTicket = (id: string, masterTicketId: strin
  *  report and lets the backend start looking for a spreading case. */
 export const decideCoordinatorDuplicate = (id: string, isDuplicate: boolean, reason: string, masterTicketId?: string | null) => apiRequest<CoordinatorTicket>(`/coordinator/tickets/${id}/duplicate-decision`, { role: "manager", method: "POST", body: JSON.stringify({ is_duplicate: isDuplicate, reason, ...(masterTicketId ? { master_ticket_id: masterTicketId } : {}) }), timeoutMs: 20_000 });
 /** Re-run an analysis that stopped on a technical error rather than a verdict. */
-/** The emergency gate. Confirming keeps P3 and deliberately stops the
- *  automation; downgrading needs a target below P3 and a written reason, and
+/** The emergency gate. Confirming keeps P5 and deliberately stops the
+ *  automation; downgrading needs a target below P5 and a written reason, and
  *  is what lets the pipeline continue into duplicate handling. */
-export const reviewCoordinatorP3 = (id: string, decision: P3Decision, priority?: TicketPriority, reason = "") => apiRequest<CoordinatorTicket>(`/coordinator/tickets/${id}/p3-review`, { role: "manager", method: "POST", body: JSON.stringify({ decision, reason, ...(decision === "DOWNGRADE_SEVERITY" && priority ? { priority } : {}) }), timeoutMs: 20_000 });
+export const reviewCoordinatorEmergency = (id: string, decision: EmergencyDecision, priority?: TicketPriority, reason = "") => apiRequest<CoordinatorTicket>(`/coordinator/tickets/${id}/emergency-review`, { role: "manager", method: "POST", body: JSON.stringify({ decision, reason, ...(decision === "DOWNGRADE_PRIORITY" && priority ? { priority } : {}) }), timeoutMs: 20_000 });
 
 export const retryCoordinatorAnalysis = (id: string) => apiRequest<CoordinatorTicket>(`/coordinator/tickets/${id}/analysis/retry`, { role: "manager", method: "POST", timeoutMs: 20_000 });
 /** §2: the Automatic Assignment switch. */
@@ -143,8 +142,10 @@ export const resetCoordinatorResidentPassword = (id: string) => apiRequest<Manag
 export const setCoordinatorResidentActive = (id: string, isActive: boolean) => apiRequest<ManagerAccount>(`/coordinator/accounts/residents/${id}/status`, { role: "manager", method: "PATCH", body: JSON.stringify({ is_active: isActive }), timeoutMs: 20_000 });
 export const listBackendAuditLogs = () => apiRequest<BackendAuditLog[]>("/coordinator/audit-logs?limit=500", { role: "manager" });
 export const listBackendCategories = () => apiRequest<CoordinatorCategory[]>("/coordinator/categories", { role: "manager" });
-export const createBackendCategory = (code: string, displayName: string, priorityCeiling: string | null) => apiRequest<CoordinatorCategory>("/coordinator/categories", { role: "manager", method: "POST", body: JSON.stringify({ code, display_name: displayName, base_score: 0, priority_ceiling: priorityCeiling }) });
-export const updateBackendCategory = (id: string, data: Partial<{ display_name: string; base_score: number; priority_ceiling: string | null; is_active: boolean }>) => apiRequest<CoordinatorCategory>(`/coordinator/categories/${id}`, { role: "manager", method: "PATCH", body: JSON.stringify(data) });
+// A code and a name. A category carries no base score and no priority ceiling
+// under the v2 rubric -- it takes no part in scoring at all.
+export const createBackendCategory = (code: string, displayName: string) => apiRequest<CoordinatorCategory>("/coordinator/categories", { role: "manager", method: "POST", body: JSON.stringify({ code, display_name: displayName }) });
+export const updateBackendCategory = (id: string, data: Partial<{ display_name: string; is_active: boolean }>) => apiRequest<CoordinatorCategory>(`/coordinator/categories/${id}`, { role: "manager", method: "PATCH", body: JSON.stringify(data) });
 export const getTicketSummaryReport = () => apiRequest<TicketSummaryReport>("/coordinator/reports/tickets-summary", { role: "manager" });
 export const getSlaPerformanceReport = () => apiRequest<SlaPerformanceReport>("/coordinator/reports/sla-performance", { role: "manager" });
 export const getTechnicianProductivityReport = (period: "week" | "month") => apiRequest<TechnicianProductivityReport>(`/coordinator/reports/technician-productivity?period=${period}`, { role: "manager", fresh: true });
@@ -248,3 +249,16 @@ export async function uploadCompletionImage(image: TicketImage) {
 export function createResidentTicket(locationId: string, description: string, attachmentUploadIds: string[]) {
   return apiRequest<CreatedTicket>("/tickets", { role: "resident", method: "POST", body: JSON.stringify({ location_id: locationId, description, attachment_upload_ids: attachmentUploadIds }), timeoutMs: 20_000 });
 }
+
+/** Run the capacity & SLA simulation over one pasted scenario document.
+ *
+ *  Read-only on the backend: it replays the scenario in memory and creates no
+ *  ticket, assignment or dispatch event. Returns three results — the manual
+ *  baseline, production as planned by production's own scheduler, and the
+ *  proposed optimisation — plus the differences.
+ *
+ *  The timeout is generous because the run is synchronous and a 500-report
+ *  scenario is a real amount of arithmetic; there is nothing to poll
+ *  afterwards, the result is the response.
+ */
+export const runCapacitySimulation = (scenario: Record<string, unknown>) => apiRequest<SimulationRun>("/coordinator/simulation/run", { role: "manager", method: "POST", body: JSON.stringify({ scenario } satisfies SimulationRunRequest), timeoutMs: 60_000 });

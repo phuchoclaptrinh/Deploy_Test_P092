@@ -48,6 +48,11 @@ from src.dispatch.loader import DispatchLoader, World
 from src.dispatch.planning import apply_placement, load_queue, reindex_technicians, safety_buffer
 from src.dispatch.scheduler import WorkUnit, place, simulate
 from src.dispatch.shift import as_utc, is_within_shift, to_local
+from src.domain.assignment_guard import (
+    EMERGENCY_PRIORITY,
+    assert_ticket_assignment_allowed,
+)
+from src.domain.risk_scoring import PRIORITY_RANK as DOMAIN_PRIORITY_RANK
 from src.models.api.errors import (
     VISUAL_PLACEMENT_INVALID,
     VISUAL_UNIT_NOT_PLACEABLE,
@@ -69,7 +74,7 @@ from src.services.assignment_support import (
     AssignmentSideEffects,
 )
 from src.services.dispatch_reassignment import supersede_open_event
-from src.services.p3_review_guard import p3_review_is_pending
+from src.services.emergency_review_guard import emergency_review_is_pending
 
 #: Warnings the board shows but does not block on. Everything else in
 #: `PlacementWarningCode` is a §3 hard constraint and rejects on confirm.
@@ -83,6 +88,10 @@ OVERLOAD_SPILLS_TO_NEXT_DAY = True
 
 GROUPING_READY_FOR_BOARD = frozenset({"NO_MATCH", "GROUPED", "NOT_ELIGIBLE"})
 GROUPING_GROUPED = "GROUPED"
+#: The emergency gate, named the way the band is named now. The wire code was
+#: `P3_REVIEW_PENDING`, which under the inverted scale told a coordinator the
+#: opposite of what was true about a routine P3.
+EMERGENCY_REVIEW_PENDING_CODE = "EMERGENCY_REVIEW_PENDING"
 GROUPING_NOT_READY_CODE = "GROUPING_NOT_READY"
 GROUPING_CASE_NOT_OPEN_CODE = "GROUPING_CASE_NOT_OPEN"
 
@@ -190,9 +199,16 @@ class VisualAssignmentService:
 
         Broader than the automatic path's eligibility on purpose. §2 sends
         anything that fails the automatic conditions to Building Management, and
-        this board is where those land -- so a P3 emergency, or a ticket a
-        dispatch pass escalated, belongs here even though it must never reach
-        the automatic workflow.
+        this board is where those land -- a ticket a dispatch pass escalated for
+        want of an eligible technician belongs here even though it never
+        reached the automatic workflow.
+
+        **A P5 does not.** It used to: under v1 the board was where an
+        emergency went precisely *because* automation refused it. v2 refuses it
+        everywhere (`docs/risk_scoring_v2.md` §8) -- Building Management handles
+        an emergency by walking there, not by dropping it on a technician's
+        column -- so offering it as a draggable card would be offering an action
+        the confirm step is required to reject.
 
         Still excluded: anything unapproved, unclassified, already assigned, or
         linked as a duplicate. None of those is a placement decision waiting to
@@ -210,6 +226,7 @@ class VisualAssignmentService:
                 Ticket.classification_status == ClassificationStatus.RESOLVED,
                 Ticket.category_id.is_not(None),
                 Ticket.duplicate_of_ticket_id.is_(None),
+                Ticket.priority != EMERGENCY_PRIORITY,
                 ~active_assignment,
             )
             .options(
@@ -220,10 +237,10 @@ class VisualAssignmentService:
             .order_by(Ticket.created_at.asc())
             .limit(limit)
         ).unique()
-        # A ticket parked at the P3 emergency gate has no settled priority and
-        # no decision a manager can make about it yet; it belongs in the review
+        # A ticket parked at the emergency gate has no settled priority and no
+        # decision a manager can make about it yet; it belongs in the review
         # queue, not the placement pool.
-        candidates = [ticket for ticket in rows if not p3_review_is_pending(self.db, ticket.id)]
+        candidates = [ticket for ticket in rows if not emergency_review_is_pending(self.db, ticket.id)]
         return self._filter_grouping_ready(candidates)
 
     def _filter_grouping_ready(self, tickets: list[Ticket]) -> list[Ticket]:
@@ -334,7 +351,7 @@ class VisualAssignmentService:
                 key=_priority_rank,
                 default=None,
             ),
-            score=max((t.score_total or Decimal(0) for t in members), default=Decimal(0)),
+            score=max((t.risk_score or Decimal(0) for t in members), default=Decimal(0)),
             submitted_at=as_utc(min(t.created_at for t in members)),
             location_labels=sorted({t.location.label for t in members if t.location and t.location.label}),
             p80_seconds=int(p80_for_unit(codes).total_seconds()),
@@ -440,6 +457,13 @@ class VisualAssignmentService:
 
         try:
             resolved = self._resolve_placements(placements, now)
+            # Re-checked here and not only in the pool query: the board a
+            # coordinator is looking at may be minutes old, and a ticket that
+            # was a P4 when it was drawn can be a P5 by the time they drop it.
+            # The pool decides what to offer; this decides what may be written.
+            for _unit, _technician_id, tickets in resolved:
+                for ticket in tickets:
+                    assert_ticket_assignment_allowed(ticket)
             self._validate(resolved, now)
 
             assignment_ids: list[UUID] = []
@@ -632,8 +656,8 @@ class VisualAssignmentService:
                     codes.append("TICKET_NOT_APPROVED")
                 if ticket.duplicate_of_ticket_id is not None:
                     codes.append("TICKET_IS_DUPLICATE")
-                if p3_review_is_pending(self.db, ticket.id):
-                    codes.append("P3_REVIEW_PENDING")
+                if emergency_review_is_pending(self.db, ticket.id):
+                    codes.append(EMERGENCY_REVIEW_PENDING_CODE)
                 grouping_code = self._grouping_readiness_code(ticket, grouping_statuses, case_of)
                 if grouping_code is not None:
                     codes.append(grouping_code)
@@ -677,7 +701,13 @@ def _ticket_code(ticket_id: UUID) -> str:
 
 
 def _priority_rank(priority: Priority) -> int:
-    return {Priority.P3: 0, Priority.P2: 1, Priority.P1: 2}[priority]
+    """Most urgent first, for picking a group's headline priority.
+
+    P5 is included even though no P5 reaches the board: this function is also
+    the tie-break for a case whose members were re-scored mid-render, and a
+    KeyError there would take down the whole board over one row.
+    """
+    return DOMAIN_PRIORITY_RANK[Priority.P5] - DOMAIN_PRIORITY_RANK[priority]
 
 
 __all__ = [

@@ -18,7 +18,6 @@ from src.models.enums import (
     Category,
     ClassificationStatus,
     Priority,
-    Severity,
     TicketStatus,
     UserRole,
 )
@@ -32,7 +31,7 @@ def _seed(db_session):
     unit = Unit(floor=floor, unit_code="A-1001")
     location_type = LocationType(code="CORRIDOR", display_name="Corridor")
     location = Location(floor=floor, location_type=location_type, label="Corridor 10")
-    water = CategoryCatalog(code=Category.WATER, display_name="Water leak", base_score=10)
+    water = CategoryCatalog(code=Category.WATER, display_name="Water leak")
     resident_user = UserProfile(user_id=uuid4(), role=UserRole.RESIDENT)
     resident = ResidentProfile(user=resident_user, unit=unit, is_primary=True)
     db_session.add_all([floor, unit, location_type, location, water, resident_user, resident])
@@ -58,7 +57,6 @@ def _ticket(db_session, resident, location, category, *, sla_due_at=None):
         classification_status=ClassificationStatus.RESOLVED,
         category_id=category.id,
         priority=Priority.P2,
-        severity=Severity.MEDIUM,
         created_at=NOW - timedelta(days=2),
         sla_started_at=NOW - timedelta(days=2),
         sla_due_at=sla_due_at,
@@ -68,7 +66,17 @@ def _ticket(db_session, resident, location, category, *, sla_due_at=None):
     return ticket
 
 
-def _assignment(db_session, ticket, technician, *, assigned_at, status=AssignmentStatus.ASSIGNED, completed_at=None, is_active=True):
+def _assignment(
+    db_session,
+    ticket,
+    technician,
+    *,
+    assigned_at,
+    status=AssignmentStatus.ASSIGNED,
+    started_at=None,
+    completed_at=None,
+    is_active=True,
+):
     assignment = TicketAssignment(
         ticket_id=ticket.id,
         technician_id=technician.user_id,
@@ -76,6 +84,7 @@ def _assignment(db_session, ticket, technician, *, assigned_at, status=Assignmen
         assignment_source="AUTO_SCHEDULER",
         status=status,
         assigned_at=assigned_at,
+        started_at=started_at,
         completed_at=completed_at,
         is_active=is_active,
     )
@@ -129,6 +138,8 @@ def test_completed_and_late_counts_use_the_latest_assignment(db_session):
         second,
         assigned_at=NOW - timedelta(hours=20),
         status=AssignmentStatus.COMPLETED,
+        # Started nineteen hours ago, a day after the deadline passed.
+        started_at=NOW - timedelta(hours=19),
         completed_at=NOW - timedelta(hours=2),
     )
 
@@ -142,7 +153,7 @@ def test_completed_and_late_counts_use_the_latest_assignment(db_session):
     assert rows[first.user_id]["reassigned_from_other_tickets"] == 0
 
 
-def test_an_on_time_completion_is_not_counted_as_late(db_session):
+def test_an_on_time_start_is_not_counted_as_late(db_session):
     resident, location, water = _seed(db_session)
     technician = _technician(db_session, "On time")
     ticket = _ticket(db_session, resident, location, water, sla_due_at=NOW + timedelta(days=1))
@@ -152,7 +163,102 @@ def test_an_on_time_completion_is_not_counted_as_late(db_session):
         technician,
         assigned_at=NOW - timedelta(days=1),
         status=AssignmentStatus.COMPLETED,
+        started_at=NOW - timedelta(hours=20),
         completed_at=NOW - timedelta(hours=1),
+    )
+
+    rows = {row["technician_id"]: row for row in TechnicianReportService(db_session).productivity("week", NOW)["rows"]}
+
+    assert rows[technician.user_id]["completed_tickets"] == 1
+    assert rows[technician.user_id]["sla_late_tickets"] == 0
+
+
+def test_a_long_repair_started_on_time_is_not_late(db_session):
+    """The measurement point that changed in risk scoring v2 §6.
+
+    The promise is that somebody arrives. A job begun an hour before the
+    deadline that turned out to need three days is not a missed promise, and
+    counting it as one makes a difficult fault look like a broken process.
+    """
+    resident, location, water = _seed(db_session)
+    technician = _technician(db_session, "Slow but punctual")
+    ticket = _ticket(db_session, resident, location, water, sla_due_at=NOW - timedelta(days=2))
+    _assignment(
+        db_session,
+        ticket,
+        technician,
+        assigned_at=NOW - timedelta(days=4),
+        status=AssignmentStatus.COMPLETED,
+        # Started before the deadline, finished long after it.
+        started_at=NOW - timedelta(days=3),
+        completed_at=NOW - timedelta(hours=1),
+    )
+
+    rows = {row["technician_id"]: row for row in TechnicianReportService(db_session).productivity("week", NOW)["rows"]}
+
+    assert rows[technician.user_id]["completed_tickets"] == 1
+    assert rows[technician.user_id]["sla_late_tickets"] == 0
+
+
+def test_a_quick_repair_started_late_is_late(db_session):
+    """The other half of the same rule: finishing fast does not undo arriving
+    two days after it was promised."""
+    resident, location, water = _seed(db_session)
+    technician = _technician(db_session, "Fast but tardy")
+    ticket = _ticket(db_session, resident, location, water, sla_due_at=NOW - timedelta(days=3))
+    _assignment(
+        db_session,
+        ticket,
+        technician,
+        assigned_at=NOW - timedelta(days=4),
+        status=AssignmentStatus.COMPLETED,
+        started_at=NOW - timedelta(hours=3),
+        completed_at=NOW - timedelta(hours=2),
+    )
+
+    rows = {row["technician_id"]: row for row in TechnicianReportService(db_session).productivity("week", NOW)["rows"]}
+
+    assert rows[technician.user_id]["sla_late_tickets"] == 1
+
+
+def test_an_assignment_with_no_recorded_start_is_not_charged_as_late(db_session):
+    """A gap in the record is not evidence of a violation."""
+    resident, location, water = _seed(db_session)
+    technician = _technician(db_session, "No start stamp")
+    ticket = _ticket(db_session, resident, location, water, sla_due_at=NOW - timedelta(days=3))
+    _assignment(
+        db_session,
+        ticket,
+        technician,
+        assigned_at=NOW - timedelta(days=4),
+        status=AssignmentStatus.COMPLETED,
+        completed_at=NOW - timedelta(hours=2),
+    )
+
+    rows = {row["technician_id"]: row for row in TechnicianReportService(db_session).productivity("week", NOW)["rows"]}
+
+    assert rows[technician.user_id]["completed_tickets"] == 1
+    assert rows[technician.user_id]["sla_late_tickets"] == 0
+
+
+def test_an_emergency_is_not_in_a_technicians_denominator(db_session):
+    """A P5 is never dispatched, so it is neither a technician's success nor
+    their failure. `docs/risk_scoring_v2.md` §6.2."""
+    from src.models.enums import Priority
+
+    resident, location, water = _seed(db_session)
+    technician = _technician(db_session, "Emergency responder")
+    ticket = _ticket(db_session, resident, location, water, sla_due_at=NOW - timedelta(days=3))
+    ticket.priority = Priority.P5
+    db_session.commit()
+    _assignment(
+        db_session,
+        ticket,
+        technician,
+        assigned_at=NOW - timedelta(days=4),
+        status=AssignmentStatus.COMPLETED,
+        started_at=NOW - timedelta(hours=3),
+        completed_at=NOW - timedelta(hours=2),
     )
 
     rows = {row["technician_id"]: row for row in TechnicianReportService(db_session).productivity("week", NOW)["rows"]}

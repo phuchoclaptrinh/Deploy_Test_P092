@@ -158,11 +158,18 @@ Bước 1 đã `npm install` sẵn. Nếu bỏ qua script setup thì chạy tay 
 | `http://localhost:8000/docs` | Swagger UI |
 | `http://localhost:3000/resident` | Giao diện cư dân |
 
-Nếu `/ready` báo `migration` khác `ok` thì DB chưa có schema — đặt `ALLOW_LIVE_MIGRATION=true` trong `.env` rồi chạy:
+Nếu `/ready` báo `migration` khác `ok` thì DB chưa có schema. Bật cờ ngay trên
+lệnh migration, đừng để sẵn trong `.env`:
 
 ```powershell
-.venv\Scripts\python.exe -m alembic upgrade head
+$env:ALLOW_LIVE_MIGRATION="true"; .venv\Scripts\python.exe -m alembic upgrade head; Remove-Item Env:ALLOW_LIVE_MIGRATION
 ```
+
+Cờ để sẵn trong `.env` là cờ luôn bật. Chuỗi migration hiện tại đi qua
+`a1b2c3d4e5f7` — revision xoá toàn bộ dữ liệu ticket và không có `downgrade`.
+Với DB không phải localhost còn phải khai thêm `MIGRATION_TARGET`; xem
+`docs/operations.md` §12. Các lệnh chỉ đọc như `alembic current` không cần bật
+hai cờ migration.
 
 **Dừng lại:** `Ctrl+C` ở từng tab. Nếu lỡ đóng tab mà port vẫn bị giữ:
 
@@ -297,37 +304,61 @@ Bộ đếm nằm trong bảng `ai_analysis_sessions` — **DB là nguồn sự 
 
 ### Sáu kết cục
 
-| `exit_reason`                          | Ticket thành                        | Ai xử lý tiếp         |
-| -------------------------------------- | ----------------------------------- | --------------------- |
-| `RED_FLAG`                             | **P3**, `RESOLVED`, không chấm điểm | BQL duyệt gấp         |
-| `CONFIDENT_MATCH` (ra đúng 1 Category) | P1/P2/P3 theo điểm, `RESOLVED`      | BQL duyệt & phân công |
-| `CONFIDENT_MATCH` (còn mơ hồ)          | `MANUAL_REVIEW`                     | BQL chốt tay          |
-| `CATEGORY_MISMATCH`                    | `MANUAL_REVIEW`                     | BQL chốt tay          |
-| `LIMIT_REACHED`                        | `MANUAL_REVIEW`                     | BQL chốt tay          |
-| `INSUFFICIENT_INPUT`                   | `INVALID` + `FAILED`                | Cư dân gửi lại        |
+| `exit_reason`                | Ticket thành                       | Ai xử lý tiếp                |
+| ---------------------------- | ---------------------------------- | ---------------------------- |
+| `EMERGENCY_REVIEW_REQUIRED`  | **P5**, `MANUAL_REVIEW`            | BQL xử lý thủ công ngay      |
+| `DUPLICATE_EXISTING`         | `LINKED_DUPLICATE`, không có SLA   | Không ai — đã gộp vào gốc    |
+| `DUPLICATE_UNCERTAIN`        | `MANUAL_REVIEW`                    | BQL chốt trùng hay độc lập   |
+| `ANALYSIS_COMPLETE`          | P1–P4 theo điểm, `RESOLVED`        | BQL duyệt & phân công        |
+| `LIMIT_REACHED`              | `MANUAL_REVIEW`                    | BQL chốt tay                 |
+| `INSUFFICIENT_INPUT`         | `INVALID`                          | Cư dân gửi lại               |
 
-> **P0 không phải một Priority.** P0 = `classification_status = MANUAL_REVIEW`. Enum `Priority` chỉ có P1/P2/P3.
+`RED_FLAG` không còn là một kết cục riêng. Nguy hiểm bây giờ là một *blocker*
+nâng sàn mức ưu tiên lên P5, đi qua đúng bộ tính điểm mà mọi ticket khác đi qua,
+và ra ở `EMERGENCY_REVIEW_REQUIRED`.
+
+> **P0 không phải một Priority.** P0 = `classification_status = MANUAL_REVIEW`.
+> Enum `Priority` có P1–P5, và **P5 là mức khẩn cấp** — thang điểm đã đảo so với
+> bản trước, khi P3 giữ vai trò đó.
 
 ### Công thức chấm điểm
 
+Hợp đồng đầy đủ: [`docs/risk_scoring_v2.md`](docs/risk_scoring_v2.md). Bản tóm tắt:
+
 ```
-score = base_score(Category) + location_bonus + density_bonus + severity_score
+risk_score = essential_function  / 4 × 50
+           + human_safety        / 4 × 25
+           + affected_scope      / 4 × 15
+           + property_spread     / 4 × 5
+           + deterioration_speed / 4 × 5
 ```
 
-| Thành phần       | Giá trị                                                   |
-| ---------------- | --------------------------------------------------------- |
-| `base_score`     | Theo Category, do BQL cấu hình (10–50)                    |
-| `location_bonus` | +30 khoá cửa chính/cửa an ninh · +25 đèn lối thoát hiểm   |
-| `density_bonus`  | +15 (2–3 căn) · +30 (≥4 căn), chỉ với rò nước / chập điện |
-| `severity_score` | Thấp 0 · Vừa 10 · Cao 20                                  |
+AI trả **năm số nguyên 0–4**, danh sách blocker và bằng chứng. Backend cộng.
+AI không trả điểm tổng, không trả mức ưu tiên, và không có trường nào trong hợp
+đồng để nó làm việc đó.
 
-| Tổng điểm | Priority | SLA    |
-| --------- | -------- | ------ |
-| `< 30`    | P1       | 72 giờ |
-| `30 – 59` | P2       | 3 giờ  |
-| `≥ 60`    | P3       | 5 phút |
+| Tổng điểm  | Priority | Hạn bắt đầu xử lý       |
+| ---------- | -------- | ----------------------- |
+| `[0, 20)`  | P1       | 1.800 phút phục vụ      |
+| `[20, 40)` | P2       | 1.200 phút phục vụ      |
+| `[40, 60)` | P3       | 600 phút phục vụ        |
+| `[60, 80)` | P4       | 180 phút phục vụ        |
+| `[80, 100]`| P5       | 5 phút, BQL xử lý tay   |
 
-Mỗi Category có thể đặt `priority_ceiling` để chặn trần. Red-flag bỏ qua toàn bộ công thức và ép thẳng **P3**.
+"Phút phục vụ" là phút trong khung 08:00–18:00; P5 chạy 24/7. SLA đo tại thời
+điểm **bắt đầu** xử lý, không phải lúc hoàn thành.
+
+Ba thứ đã bị bỏ khỏi công thức và sẽ không quay lại: `base_score` theo Category,
+`location_bonus`, và `density_bonus`. Category giữ rộng và **không tham gia tính
+điểm** — nó dùng để định tuyến kỹ năng và thống kê. Vị trí chỉ là bằng chứng để
+AI chấm `human_safety` hoặc `affected_scope`, không tự cộng điểm.
+
+Mười một *blocker* nâng **sàn** mức ưu tiên (bảy mã lên P5, bốn mã lên P4) và
+không bao giờ hạ một mức đã cao hơn. Một ticket chấm ra 13 điểm nhưng có khói
+vẫn là P5.
+
+**P5 chỉ xử lý thủ công.** Không đường phân việc nào — tự động, thủ công, theo
+case hay kéo thả trên bảng — được tạo assignment cho nó.
 
 ---
 

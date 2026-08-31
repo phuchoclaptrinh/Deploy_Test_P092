@@ -88,7 +88,7 @@ Beyond the existing settings:
 | `DISPATCH_WORKER_DB_POOL_SIZE` / `_MAX_OVERFLOW` | `2` / `1` | The worker's share. |
 | `ASSIGNMENT_REASSIGNMENT_CAP` | `3` | Three changes allowed; the fourth pauses the ticket for Building Management. |
 | `INCIDENT_CASE_MAX_TICKET_COUNT` | `5` | §7.9. |
-| `INCIDENT_CASE_SLA_EXTENSION_PER_EXTRA_TICKET` | `0.25` | Completion SLA factor, capped at 2.00. P3 never stretches. |
+| `INCIDENT_CASE_SLA_EXTENSION_PER_EXTRA_TICKET` | `0.25` | Completion SLA factor, capped at 2.00. P5 never stretches. |
 | `ASSIGNMENT_WORKER_POLL_SECONDS` | `15` | Worker loop interval. |
 | `ASSIGNMENT_WORKER_BATCH_SIZE` | `20` | Jobs claimed per pass. |
 | `ASSIGNMENT_JOB_CLAIM_TIMEOUT_SECONDS` | `900` | When another worker may reclaim a stalled job. |
@@ -214,7 +214,10 @@ code path cannot quietly violate them:
 | One active assignment per ticket | `uq_ticket_assignments_one_active_per_ticket` (partial unique) |
 | A ticket has at most one open dispatch event | `uq_dispatch_events_open_ticket` (partial unique) — this is what makes enqueue idempotent |
 | A technician holds at most one IN_PROGRESS ticket | `uq_ticket_assignments_one_in_progress_per_technician` (partial unique) — §3, in the database because two concurrent `start` calls cannot see each other |
-| P3 never enters the automatic workflow | `ck_dispatch_events_no_p3` — enforced by the table that would carry it |
+| P5 never enters the automatic workflow | `ck_dispatch_events_no_emergency` — enforced by the table that would carry it |
+| A risk assessment scores each criterion 0–4 | `ck_ticket_risk_assessments_*_range` — the rubric's scale, in the database |
+| A ticket's assessment revisions are numbered once each | `uq_ticket_risk_assessments_ticket_revision` — two concurrent re-scores both read revision 3 |
+| A confirmed apartment count is 1–5 | `ck_ticket_risk_assessments_unit_count_range` — a case holds five, so anything else counted something other than case members |
 | A claimed dispatch event can always be reclaimed | `ck_dispatch_events_claim_has_expiry` |
 | An assigned event names its assignment and technician | `ck_dispatch_events_assigned_shape` |
 | An escalated event says why | `ck_dispatch_events_escalated_shape` |
@@ -423,3 +426,358 @@ sentinel, and step 4 then fails without executing a single `TRUNCATE`.
 | Replay returns the stored run; a changed payload gives 409 | §1.7.9 | `uq_ai_analysis_runs_one_success_per_session`, the partial unique index rather than the service that wrote it. |
 | Worker pass creates an `AI_AUTO` assignment | §4-§5 | `SKIP LOCKED` claiming, `ck_ticket_assignments_human_source_has_actor`, and the active-member partial unique index being released. |
 | A second pass changes nothing | §5.1 | The job store, not in-process state, is what makes the pass idempotent. |
+
+---
+
+## 11. Risk scoring v2
+
+`docs/risk_scoring_v2.md` is the contract; this is what running it needs.
+
+### The migrations
+
+Three revisions, in order, and the first is a hard cutover:
+
+| Revision | What it does | Reversible |
+| --- | --- | --- |
+| `a1b2c3d4e5f7` | Deletes the operational ticket graph, rebuilds `priority_level_enum` with five labels, drops every v1 scoring column and `scoring_rule_versions`, renames the `p3_review_*` gate columns, creates `ticket_risk_assessments`. | **No.** Forward-only. |
+| `b2c3d4e5f6a8` | Adds `closed_at` / `closed_reason` to `incident_cases`. | Yes. |
+| `c3d4e5f6a8b9` | Repoints the dispatch check constraint from `P3` to `P5`. | Yes. |
+
+**`a1b2c3d4e5f7` deletes data, deliberately.** Every ticket, assignment,
+analysis run, dispatch event and incident case goes. Nothing maps a v1 ticket
+onto the v2 model: a severity does not imply five criteria, and a fabricated
+`human_safety` score would make every priority derived from it a guess presented
+as a record. What survives is the building and the people in it — accounts,
+apartments, floors, locations, technician profiles and skills, and the category
+catalog.
+
+Run it against a database you are willing to lose the ticket history of. On a
+shared or production database, take a dump first; the revision's `downgrade`
+raises rather than pretending it can put anything back.
+
+### What changed operationally
+
+* **The priority scale inverted.** P5 is the emergency (five wall-clock
+  minutes, handled by hand); P1 is the routine band. Every dashboard, alert and
+  saved query written before this means the opposite of what it says.
+* **The dispatch queue orders P4 → P3 → P2 → P1.** P5 has no rank because it is
+  never enqueued.
+* **SLA is measured at `started_at`, not `completed_at`,** and P1–P4 consume
+  service minutes that pause outside 08:00–18:00. Compliance covers P1–P4; P5 is
+  reported beside the rate, never inside it.
+* **`scoring_rule_versions` is gone.** There is no longer a runtime-editable
+  definition of a priority. Changing the rubric means changing
+  `src/domain/risk_scoring.py` and `docs/risk_scoring_v2.md` together, and
+  bumping `RUBRIC_VERSION` so existing rows stay readable as what they were.
+
+### Running the chain against real PostgreSQL
+
+Not yet done in this repository. The chain resolves to a single head across 39
+revisions and `tests/test_migrations/` asserts the shape of `a1b2c3d4e5f7`
+against ORM metadata, but SQLite is what the test suite runs on, and SQLite
+never exercises the enum rebuild — which is the one step with no equivalent
+there and the one most likely to fail on a real server.
+
+Do it on a database you are willing to lose the ticket history of. A throwaway
+local one is enough and is what the safety gate in `tests/e2e_postgres/`
+assumes:
+
+```bash
+createdb -h localhost -U postgres fixit_rubric_v2_check
+export CHECK_URL="postgresql+psycopg://postgres@localhost:5432/fixit_rubric_v2_check"
+
+# Supabase surface the chain expects: auth.users, auth.uid(), the four roles.
+psql -v ON_ERROR_STOP=1 -f scripts/postgres_test_shim.sql -d "$CHECK_URL"
+
+DATABASE_URL="$CHECK_URL" ALLOW_LIVE_MIGRATION=true python -m alembic upgrade head
+```
+
+Then check the five things the cutover is actually for. Each should return the
+row shown and nothing else:
+
+```sql
+-- 1. Five bands, and P5 among them.
+SELECT enumlabel FROM pg_enum e
+  JOIN pg_type t ON t.oid = e.enumtypid
+ WHERE t.typname = 'priority_level_enum'
+ ORDER BY e.enumsortorder;
+--> P1, P2, P3, P4, P5
+
+-- 2. The revision table exists with its range constraints.
+SELECT conname FROM pg_constraint
+ WHERE conrelid = 'ticket_risk_assessments'::regclass AND contype = 'c'
+ ORDER BY 1;
+--> one ck_..._range per criterion, plus risk_score and unit_count
+
+-- 3. The v1 vocabulary is gone from the ticket table.
+SELECT column_name FROM information_schema.columns
+ WHERE table_name = 'tickets'
+   AND column_name IN ('severity', 'severity_source', 'base_score',
+                       'location_bonus', 'density_bonus', 'red_flag_detected');
+--> no rows
+
+-- 4. Runtime-editable scoring is gone entirely.
+SELECT to_regclass('public.scoring_rule_versions');
+--> NULL
+
+-- 5. The dispatch queue bars the emergency band, not P3.
+SELECT conname, pg_get_constraintdef(oid) FROM pg_constraint
+ WHERE conrelid = 'dispatch_events'::regclass AND conname LIKE 'ck_%emergency%';
+--> ck_dispatch_events_no_emergency ... (priority <> 'P5')
+```
+
+Two things to know before pointing this at anything shared.
+
+`a1b2c3d4e5f7` has no `downgrade`. It raises rather than pretending it can put
+back what it deleted, so a dump taken beforehand is the only way back.
+
+`ALLOW_LIVE_MIGRATION=true` is the repo's own opt-in, checked in
+`src/database/migration_safety.py`. It is required only for commands that may
+change the database (`upgrade`, `downgrade`, `stamp`, and unknown/programmatic
+commands). Read-only inspection such as `current`, `history`, `heads` and
+`check` remains available with the flag off. On its own the flag only asks
+whether you meant to migrate online at all, and it used to be the last word:
+`APP_ENV` describes the checkout, not the server, so a development `.env`
+pointing at hosted Supabase satisfied both gates and would have run
+`a1b2c3d4e5f7` against the shared database without a question.
+
+So a non-local `DATABASE_URL` now also has to be named:
+
+```bash
+MIGRATION_TARGET="db.<project>.supabase.co:5432/postgres" DATABASE_URL="postgresql+psycopg://…" ALLOW_LIVE_MIGRATION=true python -m alembic upgrade head
+```
+
+The fingerprint is `host[:port]/database` — no credentials, so it is safe in a
+shell history and in the migration log. It must match what `DATABASE_URL`
+resolves to, which is the point: type the staging clone's fingerprint while
+`.env` still points at production and the run is refused, on the near side of
+the delete. Localhost is exempt; the development loop runs many times a day and
+ceremony there would only be kept permanently satisfied.
+
+Set all three on the migrating command. None of them belongs in `.env` — that
+is where two copies of `ALLOW_LIVE_MIGRATION=true` were found sitting.
+
+`alembic stamp` is not part of any procedure here. It moves the version pointer
+without running the DDL, so it turns a schema mismatch into a silent one and
+disarms the boot guard in `src/database/schema_version.py`.
+
+### The invariant to alert on
+
+Three queries that must always return zero rows. They are asserted in
+`tests/test_workflow/test_emergency_manual_only.py`; running them against
+production is the cheap version of the same check.
+
+```sql
+SELECT a.id FROM ticket_assignments a JOIN tickets t ON t.id = a.ticket_id
+ WHERE a.is_active AND t.priority = 'P5';
+
+SELECT m.ticket_id FROM incident_case_members m JOIN tickets t ON t.id = m.ticket_id
+ WHERE t.priority = 'P5';
+
+SELECT e.id FROM dispatch_events e JOIN tickets t ON t.id = e.ticket_id
+ WHERE e.is_open AND t.priority = 'P5';
+```
+
+A row in any of them means a P5 reached an assignment path, which is the one
+thing `src/domain/assignment_guard.py` exists to prevent.
+
+## 12. The risk v2 cutover runbook
+
+§11 describes what the three revisions do. This is the order to do them in on a
+database that holds real data, and the checks that decide whether to continue at
+each step.
+
+The shape of the risk is unusual and worth stating once: `a1b2c3d4e5f7` deletes
+the entire operational ticket graph and raises rather than offering a
+`downgrade`. There is no rollback inside the database. The only way back is a
+dump taken beforehand and proven to restore. Everything below follows from that.
+
+### 12.1 The release candidate
+
+One commit, and every command below runs from it. Before starting:
+
+| Check | Command | Expected |
+|---|---|---|
+| Backend | `python -m pytest -q` | all pass |
+| Frontend | `cd frontend && npm test` | all pass |
+| Types | `cd frontend && npx tsc --noEmit` | silent |
+| Build | `cd frontend && npm run build` | succeeds |
+| Lint | `python -m ruff check .` | `All checks passed!` |
+| One head | `python -m alembic heads` | `c3d4e5f6a8b9 (head)` |
+
+Also confirm by eye, because none of these are things a test can decide for you:
+the rubric weights are the ones you signed off — 25 / 5 / 50 / 15 / 5 for
+human safety, property spread, essential function, affected scope and
+deterioration speed, in `src/domain/risk_scoring.py` — the simulator is
+present and its sample scenario runs on `SERVICE_HOURS_RISK_V2`, and
+`src/database/schema_version.py` is wired into the app's lifespan so a
+half-applied chain fails at boot instead of at the first request.
+
+### 12.2 Inventory, before anything is touched
+
+```bash
+python scripts/premigration_inventory.py \
+    --database-url "$MIGRATION_PG_URL" \
+    --out outputs/inventory-before.md
+```
+
+Read-only — it runs `SELECT` and `count(*)` and nothing else, so it is safe to
+point at production. It reports the server version, the current revision, a row
+count for each of the eighteen tables the cutover empties, a row count for each
+table that must survive, and the audit-log split.
+
+**Stop conditions.** The revision must read `9f0a1b2c3d4e`; anywhere else in the
+chain and the rest of this document does not apply. And the last section of the
+report is a checklist a person has to answer, not the script:
+
+If any ticket history is needed for lookup afterwards, **the plan stops here.**
+The answer is then an archive migration, and `a1b2c3d4e5f7` as written is the
+wrong tool. Do not proceed and plan to "export it later" — there is no later.
+
+### 12.3 Back up, and prove the backup
+
+Prefer the Supabase **direct** host for migrations and `pg_dump`. If the machine
+cannot reach the direct IPv6 endpoint, Supabase also documents the Supavisor
+**session-mode** pooler on port `5432` as the backup/restore fallback. Do not use
+the transaction-mode pooler on port `6543` for this procedure. Whichever
+endpoint is used must be named exactly in the inventory and migration record;
+direct and session-mode hosts have different `MIGRATION_TARGET` fingerprints.
+
+Strip the SQLAlchemy driver from the dump URL: `pg_dump` wants
+`postgresql://`, not `postgresql+psycopg://`.
+
+`pg_dump` must be at least the server's major version. The client here is 16.
+
+```powershell
+pg_dump --dbname="$env:MIGRATION_PG_URL" --format=custom --no-owner --no-acl `
+        --file="backup-before-risk-v2.dump"
+
+Get-FileHash "backup-before-risk-v2.dump" -Algorithm SHA256
+pg_restore --list "backup-before-risk-v2.dump"
+```
+
+A dump that has not been restored is not a backup, it is a file. Restore it into
+the staging database and keep that database — §12.5 runs the rehearsal on it.
+
+```powershell
+pg_restore --clean --if-exists --no-owner --no-acl `
+           --dbname="$env:STAGING_PG_URL" "backup-before-risk-v2.dump"
+```
+
+### 12.4 Rehearsal one: an empty PostgreSQL
+
+This is the cheap one and it catches the expensive failure. SQLite is what the
+test suite runs on, and SQLite never exercises the enum rebuild — the one step
+with no equivalent there and the one most likely to fail on a real server. See
+§11 for the `createdb` / `postgres_test_shim.sql` / `upgrade head` sequence.
+
+### 12.5 Rehearsal two: the restored copy
+
+The same chain, over real data shapes, from the release candidate:
+
+```powershell
+$env:DATABASE_URL = $env:STAGING_APP_DATABASE_URL
+$env:APP_ENV = "development"
+$env:MIGRATION_TARGET = "<staging host:port/db>"
+
+python -m alembic current      # 9f0a1b2c3d4e
+$env:ALLOW_LIVE_MIGRATION = "true"
+python -m alembic upgrade head
+Remove-Item Env:ALLOW_LIVE_MIGRATION
+python -m alembic current      # c3d4e5f6a8b9
+Remove-Item Env:MIGRATION_TARGET
+```
+
+Time this run. The maintenance window in §12.7 comes from it plus at least 100%.
+
+A note on `APP_ENV`. The gate in `src/database/migration_safety.py` still
+requires `development` or `test`, so a production cutover means setting it for
+the duration of that one command. That is a real weakness of using `APP_ENV` to
+describe a *database*, and it is why `MIGRATION_TARGET` was added: the
+fingerprint is what actually identifies the server, and it is checked against
+what `DATABASE_URL` resolves to. If a stronger interlock is wanted before
+touching production, the place to add it is that module — a required project
+ID, checked the same way.
+
+### 12.6 Acceptance on staging
+
+Run the five schema queries and the three zero-row invariants in §11, and also
+confirm:
+
+- The `priority_level_enum` has exactly `P1 P2 P3 P4 P5`.
+- `severity`, `severity_source`, `base_score`, `location_bonus`,
+  `density_bonus`, `red_flag_detected` are gone from `tickets`.
+- `ticket_risk_assessments` exists with a range constraint per criterion.
+- `to_regclass('public.scoring_rule_versions')` is `NULL`.
+- `dispatch_events` bars `P5`, not `P3`.
+- The backend starts — meaning `assert_schema_is_current` passed.
+
+Then run the inventory again and diff it:
+
+```bash
+python scripts/premigration_inventory.py --database-url "$STAGING_PG_URL" \
+    --out outputs/inventory-after.md
+diff outputs/inventory-before.md outputs/inventory-after.md
+```
+
+Every doomed table must read 0. Every surviving table must be **byte-identical**
+to the before file. A change there means the cutover reached further than it was
+meant to, and that is a stop.
+
+Smoke test, in this order, because each step depends on the one above it:
+
+1. Sign in as a resident and as Building Management.
+2. Create a ticket.
+3. The Agent scores all five criteria.
+4. A clarifying question is asked and can be answered.
+5. A duplicate of a P5 is recorded but does **not** join a case.
+6. A P5 is not assigned to anyone.
+7. A P4 is assigned normally.
+8. The simulator page loads and a run completes.
+9. The UI shows P1–P5 and the risk breakdown, and the reports page counts P4 and
+   P5 tickets in its distribution chart.
+
+### 12.7 Production
+
+Only after §12.6 passes in full.
+
+1. Maintenance mode on.
+2. Stop the backend, the dispatch worker, and anything else that creates tickets.
+3. Take the final dump and prove the restore (§12.3). This is the one that
+   matters; the earlier one was a rehearsal artifact.
+4. Record the revision and the row counts (§12.2).
+5. Run the chain from the release-candidate commit, naming the target.
+6. Post-checks (§12.6).
+7. Start the backend. The schema guard must pass.
+8. Smoke test.
+9. Maintenance mode off.
+
+Do not open the system to users before the smoke test finishes. Anything created
+after the cutover is data a rollback cannot merge back.
+
+### 12.8 Rollback
+
+There is no `downgrade`. The procedure is:
+
+1. Stop everything.
+2. Create a new database.
+3. Restore the pre-migration dump into it.
+4. Point `DATABASE_URL` at the restored database.
+5. Deploy the pre-v2 build.
+6. Confirm `alembic current` reads `9f0a1b2c3d4e`.
+
+### 12.9 Go conditions
+
+All of these, and the last one is a person's, not a check's:
+
+- [ ] Rubric weights confirmed; simulator present; schema guard wired in.
+- [ ] Release candidate green on all six checks in §12.1.
+- [ ] Inventory taken and the revision reads `9f0a1b2c3d4e`.
+- [ ] Dump taken through the direct host, or documented Supavisor session mode
+      on port 5432 when direct IPv6 was unavailable, and **restored** successfully.
+- [ ] Both rehearsals passed; the second one over real data.
+- [ ] Nobody needs the old ticket history for lookup.
+- [ ] Everyone else on the database has been told.
+- [ ] Losing the entire ticket history is accepted, explicitly.
+
+Production is a separate approval from staging. It cannot be undone.

@@ -2,7 +2,6 @@ import httpx
 
 from src.config import get_settings
 
-
 settings = get_settings()
 with httpx.Client(timeout=20) as client:
     auth = client.post(

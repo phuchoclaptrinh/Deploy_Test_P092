@@ -21,8 +21,6 @@ def _category_response(row) -> CoordinatorCategoryResponse:
         id=row.id,
         code=row.code,
         display_name=row.display_name,
-        base_score=row.base_score,
-        priority_ceiling=row.priority_ceiling,
         is_active=row.is_active,
     )
 

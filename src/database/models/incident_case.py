@@ -39,6 +39,12 @@ class IncidentCase(Base):
     window_end: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     density_value: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    #: A case that lost its last member is closed rather than deleted: the
+    #: members it held are the reason several tickets were scored the way they
+    #: were, and a coordinator asking "why was this a P4 yesterday" needs the
+    #: case to still exist. `docs/risk_scoring_v2.md` §7.3.
+    closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    closed_reason: Mapped[str | None] = mapped_column(String(200), nullable=True)
 
     category: Mapped[CategoryCatalog] = relationship()
     members: Mapped[list[IncidentCaseMember]] = relationship(back_populates="case", cascade="all, delete-orphan")

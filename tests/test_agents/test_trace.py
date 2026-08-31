@@ -214,8 +214,11 @@ def test_tracing_llm_client_passes_the_result_through_and_records_it(tmp_path):
     classification = UnifiedClassification(
         category="Rò nước",
         text_category="Rò nước",
-        severity="MEDIUM",
-        red_flag=False,
+        human_safety=1,
+        property_spread=1,
+        essential_function=1,
+        affected_scope=0,
+        deterioration_speed=1,
         understandable=True,
         ai_reason="Cư dân mô tả nước rỉ liên tục từ vòi trong nhà tắm.",
     )
@@ -229,7 +232,7 @@ def test_tracing_llm_client_passes_the_result_through_and_records_it(tmp_path):
     assert [item["event"] for item in records] == ["llm_request", "llm_response"]
     assert records[0]["image_count"] == 1
     assert "token=" not in json.dumps(records)
-    assert records[1]["result"]["severity"] == "MEDIUM"
+    assert records[1]["result"]["human_safety"] == 1
 
 
 def test_tracing_llm_client_records_a_failed_call_and_re_raises(tmp_path):

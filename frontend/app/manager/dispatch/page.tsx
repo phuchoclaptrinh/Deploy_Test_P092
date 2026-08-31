@@ -23,7 +23,7 @@ const ESCALATION_LABELS: Record<string, string> = {
   NO_FEASIBLE_PLACEMENT: "Không xếp được vào lịch của ai",
   AUTO_ASSIGNMENT_DISABLED: "Phân việc tự động đã tắt",
   TICKET_NOT_ELIGIBLE: "Phản ánh không còn đủ điều kiện",
-  P3_EMERGENCY: "Phản ánh khẩn cấp P3",
+  P5_EMERGENCY: "Phản ánh khẩn cấp P5",
 };
 
 /** §10: what Automatic Assignment did, for the people who have to answer for it.
@@ -76,7 +76,7 @@ export default function ManagerDispatchPage() {
               <thead><tr><th>Phản ánh</th><th>Kỹ thuật viên</th><th>Nguồn quyết định</th><th>Mức trễ</th><th>Lý do</th><th>Thời điểm</th></tr></thead>
               <tbody>
                 {decisions.map((decision) => (
-                  <tr key={decision.id} className={atRiskNeedsAttention(decision) ? "mdRow mdRow-P3" : "mdRow"}>
+                  <tr key={decision.id} className={atRiskNeedsAttention(decision) ? "mdRow needsAttention" : "mdRow"}>
                     <td data-label="Phản ánh">{decision.ticket_display_code}</td>
                     <td data-label="Kỹ thuật viên">{decision.technician_name || "—"}</td>
                     <td data-label="Nguồn quyết định">

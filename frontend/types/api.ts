@@ -1,4 +1,3 @@
-import type { TicketSeverity } from "@/lib/severity";
 
 export type OtpSession = { access_token: string; refresh_token: string | null; token_type: string; expires_in: number | null };
 export type CurrentUser = { user_id: string; role: string; full_name: string | null; phone_e164: string | null; unit: { id: string; unit_code: string; floor_code: string } | null };
@@ -25,25 +24,105 @@ export type CoordinatorDuplicateCandidate = { ticket_id: string; display_code: s
  *  classified this way, `duplicate_reason` why the duplicate verdict is or is not
  *  certain — two different questions. `error_code` is set only when the run
  *  failed technically instead of concluding anything. */
-/** P3 is the emergency Priority (five-minute SLA), not a Severity: Severity is
- *  LOW/MEDIUM/HIGH. PENDING is the only status where the review buttons apply. */
-export type P3ReviewStatus = "NOT_REQUIRED" | "PENDING" | "CONFIRMED" | "DOWNGRADED";
-export type P3Decision = "CONFIRM_P3" | "DOWNGRADE_SEVERITY";
-export type TicketPriority = "P1" | "P2" | "P3";
+/** P5 is the emergency Priority (five-minute SLA, handled by hand). PENDING is
+ *  the only status where the review buttons apply.
+ *
+ *  The scale inverted with risk scoring v2: P1 is the routine band and P5 the
+ *  emergency, where P3 used to be. Anything in this file written before that
+ *  reads the opposite way. */
+export type EmergencyReviewStatus = "NOT_REQUIRED" | "PENDING" | "CONFIRMED" | "DOWNGRADED";
+export type EmergencyDecision = "CONFIRM_P5" | "DOWNGRADE_PRIORITY";
+export type TicketPriority = "P1" | "P2" | "P3" | "P4" | "P5";
 
-export type CoordinatorAnalysisSummary = { run_number: number; exit_reason: string | null; final_category_id: string | null; text_category_id: string | null; image_category_id: string | null; severity: TicketSeverity | null; severity_source: string | null; red_flag: boolean; ai_reason: string | null; duplicate_verdict: string | null; duplicate_reason: string | null; duplicate_candidates: CoordinatorDuplicateCandidate[]; grouping_status: string | null; p3_review_status: P3ReviewStatus | null; p3_decision: P3Decision | null; p3_decision_reason: string | null; p3_reviewed_by: string | null; p3_reviewed_at: string | null; ai_priority_before_review: TicketPriority | null; effective_priority: TicketPriority | null; model_version: string | null; error_code: string | null };
+/** The five judgements the Agent makes. Backend turns them into a score; the
+ *  frontend only ever displays them. */
+export type RiskCriterion =
+  | "human_safety"
+  | "property_spread"
+  | "essential_function"
+  | "affected_scope"
+  | "deterioration_speed";
+
+export type BlockerCode =
+  | "FIRE_OR_SMOKE"
+  | "ELECTRIC_SHOCK_OR_LIVE_WIRE"
+  | "GAS_LEAK_OR_ASPHYXIATION"
+  | "SERIOUS_INJURY"
+  | "PERSON_TRAPPED_IN_ELEVATOR"
+  | "SOLE_ESCAPE_ROUTE_BLOCKED"
+  | "ONGOING_VIOLENCE"
+  | "SEWAGE_OVERFLOW"
+  | "HEAVY_WATER_FLOW_SPREAD_RISK"
+  | "TOTAL_UNPLANNED_UTILITY_LOSS"
+  | "SOLE_TOILET_UNUSABLE";
+
+export type RiskAssessmentSource =
+  | "AI_ANALYSIS"
+  | "GROUPING_RESCORE"
+  | "HUMAN_REVIEW"
+  | "DUPLICATE_ESCALATION";
+
+/** One scoring revision, append-only on the backend.
+ *
+ *  Three scope numbers rather than one, because they answer three questions:
+ *  what the Agent estimated from a single report, what a case actually counted,
+ *  and which of the two the formula used. An estimate that was overruled is the
+ *  most interesting one on the screen, so it is shown rather than replaced.
+ *
+ *  `score_priority` and `final_priority` differ exactly when a blocker floored
+ *  the outcome — which is the case where the number on screen does not explain
+ *  the band on screen, and a coordinator needs to be told why. */
+export type RiskEvidence = Partial<Record<RiskCriterion, string[]>> & {
+  blockers?: Record<string, string[]> | string[];
+};
+
+export type RiskAssessment = {
+  id: string;
+  revision_no: number;
+  source: RiskAssessmentSource | string;
+  human_safety_score: number;
+  property_spread_score: number;
+  essential_function_score: number;
+  deterioration_speed_score: number;
+  ai_scope_score: number;
+  backend_scope_score: number | null;
+  effective_scope_score: number;
+  confirmed_affected_unit_count: number | null;
+  blocker_codes: string[];
+  /** The five criterion keys hold lines; `blockers` holds one list per blocker
+   *  code. Keyed rather than pooled because each code sets a different floor,
+   *  so "which line justified which floor" is a question with an answer. */
+  evidence: RiskEvidence;
+  unknown_facts: string[];
+  risk_score: number;
+  score_priority: TicketPriority;
+  blocker_floor: TicketPriority | null;
+  final_priority: TicketPriority;
+  rubric_version: string;
+  case_id_snapshot: string | null;
+  case_density_snapshot: number | null;
+  override_reason: string | null;
+  reviewed_by: string | null;
+  created_at: string;
+};
+
+/** The five 0–4 judgements, as a coordinator supplies them by hand when the
+ *  analysis produced none. */
+export type RiskCriteriaInput = Record<RiskCriterion, number>;
+
+export type CoordinatorAnalysisSummary = { run_number: number; exit_reason: string | null; final_category_id: string | null; text_category_id: string | null; image_category_id: string | null; risk_assessment: RiskAssessment | null; ai_reason: string | null; duplicate_verdict: string | null; duplicate_reason: string | null; duplicate_candidates: CoordinatorDuplicateCandidate[]; grouping_status: string | null; emergency_review_status: EmergencyReviewStatus | null; emergency_decision: EmergencyDecision | null; emergency_decision_reason: string | null; emergency_reviewed_by: string | null; emergency_reviewed_at: string | null; ai_priority_before_review: TicketPriority | null; effective_priority: TicketPriority | null; model_version: string | null; error_code: string | null };
 export type CoordinatorAgentQuestionSummary = { id: string; question_kind: string | null; question_type: string; question_text: string; options: string[] | null; allow_free_text_fallback: boolean; round_number: number; status: string; answer_type: string | null; answer_text: string | null; answer_payload: Record<string, unknown> | null; answer_upload_id: string | null; asked_at: string; answered_at: string | null; expires_at: string | null };
 export type CoordinatorTicketReporter = { user_id: string; full_name: string | null; phone_e164: string | null; unit_code: string | null; floor_label: string | null };
 export type CoordinatorTimelineItem = { from_status: string | null; to_status: string; reason: string | null; created_at: string };
-export type CoordinatorTicket = { id: string; reporter_user_id: string; reporter: CoordinatorTicketReporter | null; source_unit_id: string; location_label: string | null; description: string | null; status: string; classification_status: string; display_code: "P0" | null; category_id: string | null; category: string | null; priority: "P1" | "P2" | "P3" | null; severity: TicketSeverity | null; red_flag_detected: boolean; score_total: number | null; sla_started_at?: string | null; sla_due_at: string | null; created_at: string; updated_at: string; version?: number; available_actions: string[]; duplicate_of_ticket_id?: string | null; duplicate_master_display_code?: string | null; invalid_reason?: string | null; reassignment_count?: number; auto_assignment_paused?: boolean; auto_assignment_pause_reason?: string | null; active_assignment_id: string | null; active_assignment_status: string | null; active_assignment_source?: string | null; active_technician_id: string | null; active_technician_name: string | null; active_assignment_updated_at?: string | null; planned_start_at?: string | null; planned_finish_at?: string | null; planned_order?: number | null; assignment_risk_state?: string | null; slack_seconds?: number | null; completion_note?: string | null; completed_technician_name?: string | null; latest_analysis: CoordinatorAnalysisSummary | null; agent_questions: CoordinatorAgentQuestionSummary[]; attachments: TicketAttachment[]; timeline?: CoordinatorTimelineItem[] };
-export type CoordinatorClusterTicket = { id: string; display_code: string; description: string | null; status: string; priority: "P1" | "P2" | "P3" | null; location_label: string | null; unit_code: string | null; floor_label: string | null; created_at: string; active_assignment_id: string | null; active_assignment_status: string | null; active_technician_id: string | null; active_technician_name: string | null };
+export type CoordinatorTicket = { id: string; reporter_user_id: string; reporter: CoordinatorTicketReporter | null; source_unit_id: string; location_label: string | null; description: string | null; status: string; classification_status: string; display_code: "P0" | null; category_id: string | null; category: string | null; priority: TicketPriority | null; risk_score: number | null; risk_assessment: RiskAssessment | null; case_unit_count: number | null; sla_started_at?: string | null; sla_due_at: string | null; created_at: string; updated_at: string; version?: number; available_actions: string[]; duplicate_of_ticket_id?: string | null; duplicate_master_display_code?: string | null; invalid_reason?: string | null; reassignment_count?: number; auto_assignment_paused?: boolean; auto_assignment_pause_reason?: string | null; active_assignment_id: string | null; active_assignment_status: string | null; active_assignment_source?: string | null; active_technician_id: string | null; active_technician_name: string | null; active_assignment_updated_at?: string | null; planned_start_at?: string | null; planned_finish_at?: string | null; planned_order?: number | null; assignment_risk_state?: string | null; slack_seconds?: number | null; completion_note?: string | null; completed_technician_name?: string | null; latest_analysis: CoordinatorAnalysisSummary | null; agent_questions: CoordinatorAgentQuestionSummary[]; attachments: TicketAttachment[]; timeline?: CoordinatorTimelineItem[] };
+export type CoordinatorClusterTicket = { id: string; display_code: string; description: string | null; status: string; priority: TicketPriority | null; location_label: string | null; unit_code: string | null; floor_label: string | null; created_at: string; active_assignment_id: string | null; active_assignment_status: string | null; active_technician_id: string | null; active_technician_name: string | null };
 export type CoordinatorCluster = { id: string; category_id: string; category: string; floor_label: string; density: number; status: string; closed: boolean; window_start: string; window_end: string; created_at: string; tickets: CoordinatorClusterTicket[] };
 export type CoordinatorClusterApproveResult = { case_id: string; approved_ticket_ids: string[]; skipped_ticket_ids: string[] };
 export type CoordinatorClusterAssignResult = { case_id: string; technician_id: string; assigned_ticket_ids: string[]; skipped_ticket_ids: string[]; assignment_ids: string[] };
 export type TechnicianSummary = { user_id: string; full_name: string | null; phone_e164: string | null; is_active: boolean; is_available: boolean; skill_category_ids: string[] };
 export type CoordinatorResidentSummary = { user_id: string; full_name: string | null; phone_e164: string | null; is_active: boolean; unit_id: string | null; unit_code: string | null; floor_code: string | null; is_primary: boolean | null };
 export type ManagerAccount = { user_id: string; role: "RESIDENT" | "TECHNICIAN" | "COORDINATOR"; full_name: string | null; phone_e164: string | null; email: string | null; temporary_password: string | null; unit_id: string | null; unit_code: string | null; is_active: boolean; is_available: boolean | null; skill_category_ids: string[] };
-export type TechnicianAssignment = { id: string; status: "ASSIGNED" | "IN_PROGRESS" | "COMPLETED" | "REJECTED" | "REASSIGNED" | "UNABLE_TO_HANDLE"; assigned_at: string; started_at?: string | null; completed_at?: string | null; ended_at?: string | null; unable_reason?: string | null; reject_reason?: string | null; planned_start_at?: string | null; planned_finish_at?: string | null; planned_order?: number | null; risk_state?: string | null; slack_seconds?: number | null; ticket: { id: string; description: string | null; category_display_name: string | null; location_label: string | null; priority: "P1" | "P2" | "P3" | null; sla_due_at: string | null; attachments: TicketAttachment[] } };
+export type TechnicianAssignment = { id: string; status: "ASSIGNED" | "IN_PROGRESS" | "COMPLETED" | "REJECTED" | "REASSIGNED" | "UNABLE_TO_HANDLE"; assigned_at: string; started_at?: string | null; completed_at?: string | null; ended_at?: string | null; unable_reason?: string | null; reject_reason?: string | null; planned_start_at?: string | null; planned_finish_at?: string | null; planned_order?: number | null; risk_state?: string | null; slack_seconds?: number | null; ticket: { id: string; description: string | null; category_display_name: string | null; location_label: string | null; priority: TicketPriority | null; sla_due_at: string | null; attachments: TicketAttachment[] } };
 export type TechnicianAvailability = { is_available: boolean };
 /** §4: the technician's ordered work queue. Item 0 is "Làm ngay", item 1 is
  *  "Tiếp theo". The split is a rendering decision, so the payload stays one
@@ -98,7 +177,7 @@ export type BoardUnit = {
   category_id: string | null;
   category_code: string | null;
   category_display_name: string | null;
-  priority: "P1" | "P2" | "P3" | null;
+  priority: TicketPriority | null;
   score: number;
   submitted_at: string;
   location_labels: string[];
@@ -198,9 +277,199 @@ export type OperationalTimeoutSweep = { resident_question_timeouts: number };
 export type DispatchWorkerRun = { batch_id: string | null; claimed: number; reclaimed: number; assigned_safe: number; assigned_by_agent: number; assigned_by_fallback: number; at_risk: number; escalated: number; out_of_shift: boolean; query_count: number; agent_calls: number; agent_error: string | null; duration_ms: number; errors: string[] };
 
 export type BackendNotification = { id: string; ticket_id: string | null; notification_type: string; channel: string; title: string; body: string; status: string; created_at: string; sent_at: string | null };
-export type CoordinatorCategory = { id: string; code: string; display_name: string; base_score: number | null; priority_ceiling: "P1" | "P2" | "P3" | null; is_active: boolean };
+/** A routing and reporting label. No base score and no priority ceiling: a
+ *  category takes no part in scoring under the v2 rubric. */
+export type CoordinatorCategory = { id: string; code: string; display_name: string; is_active: boolean };
 export type BackendAuditLog = { id: number; actor_user_id: string | null; actor_role: string; action: string; entity_type: string; entity_id: string; before_data: Record<string, unknown> | null; after_data: Record<string, unknown> | null; reason: string | null; created_at: string };
 export type TicketSummaryReport = { total: number; by_status: Record<string, number>; by_priority: Record<string, number>; by_category: Record<string, number> };
-export type SlaPerformanceReport = { completed_total: number; completed_on_time: number; compliance_rate: number | null };
+/** Measured at the moment work *started*, over P1–P4 only. P5 is reported
+ *  beside the rate rather than inside it: an emergency is never dispatched,
+ *  so it is neither a technician's success nor their failure. */
+export type SlaPerformanceReport = { measured_total: number; started_on_time: number; overdue_not_started: number; compliance_rate: number | null; emergency_manual_total: number };
 export type TechnicianProductivityRow = { technician_id: string; full_name: string | null; is_active: boolean; active_days: number; completed_tickets: number; sla_late_tickets: number; reassigned_from_other_tickets: number };
 export type TechnicianProductivityReport = { period: "week" | "month" | string; period_start: string; period_end: string; rows: TechnicianProductivityRow[] };
+
+/** Capacity & SLA simulation — a read-only what-if run by Building Management.
+ *
+ *  Two flows, and **neither of them is production**. `OLD_APP` is the manual
+ *  baseline; `NEW_APP` is a *hypothetical* policy — P2 before every unstarted
+ *  P1, technicians chosen by when they can start, and a conservative fallback
+ *  when nobody can make the deadline. The deployed dispatcher does not work
+ *  that way, so there is no parity flag on this payload and no badge for the
+ *  screen to render.
+ *
+ *  **SLA is measured at `work_started_at`**, the moment the technician arrives
+ *  and begins. `completed_at` exists only for capacity and rostering, and is
+ *  never written back to a ticket.
+ *
+ *  Timestamps arrive in Vietnam local time (+07:00) — the one exception to this
+ *  API — see `src/models/api/simulation.py`.
+ */
+export type SimulationScenarioKey = "OLD_APP" | "NEW_APP";
+
+export type SimulationSlaPolicy = "WALL_CLOCK_V1" | "SERVICE_HOURS_DRAFT_V1" | "SERVICE_HOURS_RISK_V2";
+
+/** `ASSIGNED` means a technician was chosen — not that the work has begun. */
+export type SimulationOutcome =
+  | "ASSIGNED"
+  | "REQUIRES_MANUAL_P3_REVIEW"
+  | "REQUIRES_MANUAL_P5_REVIEW"
+  | "NO_ELIGIBLE_TECHNICIAN";
+
+/** Measured at the moment work *starts*. `OPEN_OVERDUE` is a breach and is in
+ *  the denominator; `OPEN_NOT_DUE` is neither a success nor a breach and is
+ *  outside it. */
+export type SimulationSlaStatus = "ON_TIME" | "LATE_STARTED" | "OPEN_OVERDUE" | "OPEN_NOT_DUE" | "NOT_EVALUABLE";
+
+export type SimulationReason =
+  | "P3_MANUAL_REVIEW"
+  | "P5_MANUAL_REVIEW"
+  | "MISSING_SKILL"
+  | "TECHNICIAN_UNAVAILABLE"
+  | "TECHNICIAN_EXCLUDED";
+
+/** Nobody eligible could start before the deadline. */
+export type SimulationRiskReason = "START_SLA_RISK";
+
+/** Who chose the technician. None of these claims a model actually decided:
+ *  `SCHEDULER_FALLBACK_SIMULATED` is the deterministic conservative branch the
+ *  simulator takes where the real system would consult an agent. */
+export type SimulationDecisionSource = "SCHEDULER_SIMULATED" | "SCHEDULER_FALLBACK_SIMULATED" | "MANUAL_SIMULATED";
+
+/** Where a ticket's SLA duration came from. `INPUT_OVERRIDE` means the scenario
+ *  pinned a duration the policy disagrees with, so that row is not measured
+ *  against the policy the run is nominally under. */
+export type SimulationSlaDurationSource = "POLICY" | "INPUT_OVERRIDE";
+
+export type SimulationTicketOutcome = {
+  ticket_id: string;
+  scenario: SimulationScenarioKey;
+  outcome: SimulationOutcome;
+  sla_status: SimulationSlaStatus;
+  reason: SimulationReason | null;
+  priority: TicketPriority;
+  floor: number;
+  unit: string;
+  required_skill: string;
+  sla_due_at: string;
+  /** The duration behind `sla_due_at`, and who decided it. */
+  sla_minutes: number;
+  sla_duration_source: SimulationSlaDurationSource;
+  ready_at: string;
+  assigned_technician_id: string | null;
+  decision_source: SimulationDecisionSource | null;
+  risk_state: "SAFE" | "AT_RISK" | null;
+  risk_reason: SimulationRiskReason | null;
+  /** What the run projected when it made the assignment. Can differ from what
+   *  happened, because a later P2 may overtake an unstarted P1. */
+  projected_start_at: string | null;
+  projected_start_late_minutes: number;
+  /** What the real system would do here. The simulator sends and writes nothing. */
+  would_notify_bql: boolean;
+  would_write_audit: boolean;
+  /** The technician leaves their previous job. */
+  departed_at: string | null;
+  /** They arrive and begin. **This is the SLA moment.** Null when nothing had
+   *  started by the end of the simulated window. */
+  work_started_at: string | null;
+  /** Simulated completion. Capacity and rostering only — never an SLA moment,
+   *  and never written back to a ticket. */
+  completed_at: string | null;
+  wait_minutes: number;
+  response_minutes: number;
+  /** Late *starting*, on the clock the running policy uses. For `OPEN_OVERDUE`
+   *  it is the overdue time up to the end of the simulated window. */
+  start_late_minutes: number;
+  travel_minutes: number;
+  repair_minutes: number;
+  bql_minutes: number;
+};
+
+export type SimulationTechnicianLoad = {
+  technician_id: string;
+  work_minutes: number;
+  travel_minutes: number;
+  busy_minutes: number;
+  assigned_ticket_count: number;
+  /** The working minutes the run spans — the denominator of the percentage. */
+  capacity_minutes: number;
+  utilization_percent: number;
+};
+
+export type SimulationScenarioSummary = {
+  total_tickets: number;
+  /** Given a technician. Not the same as started. */
+  assigned_tickets: number;
+  started_tickets: number;
+  /** ON_TIME + LATE_STARTED + OPEN_OVERDUE. Rendered next to the rate, always. */
+  sla_evaluable_tickets: number;
+  sla_on_time_tickets: number;
+  sla_late_started_tickets: number;
+  sla_open_overdue_tickets: number;
+  sla_open_not_due_tickets: number;
+  sla_not_evaluable_tickets: number;
+  /** Null when the denominator is empty, rather than a misleading 0% or 100%. */
+  compliance_rate: number | null;
+  total_start_late_minutes: number;
+  average_start_late_minutes: number;
+  average_wait_minutes: number;
+  p95_wait_minutes: number;
+  average_response_minutes: number;
+  p95_response_minutes: number;
+  total_travel_minutes: number;
+  bql_effort_minutes: number;
+  at_risk_tickets: number;
+  last_completed_at: string | null;
+  technician_utilization: SimulationTechnicianLoad[];
+};
+
+export type SimulationScenarioResult = {
+  scenario: SimulationScenarioKey;
+  summary: SimulationScenarioSummary;
+  tickets: SimulationTicketOutcome[];
+};
+
+/** The new app measured against the old one.
+ *
+ *  **Positive always means the new app is better.** Every `_saved` / `_avoided`
+ *  field is `OLD_APP − NEW_APP`; `compliance_rate_gain` is `NEW_APP − OLD_APP`,
+ *  because there more is better. The subtraction happens once, on the backend,
+ *  so nothing on the screen flips a sign. */
+export type SimulationComparison = {
+  bql_minutes_saved: number;
+  bql_hours_saved: number;
+  late_starts_avoided: number;
+  start_late_minutes_avoided: number;
+  average_response_minutes_saved: number;
+  p95_response_minutes_saved: number;
+  travel_minutes_saved: number;
+  compliance_rate_gain: number | null;
+};
+
+export type SimulationSettings = {
+  travel_base_minutes: number;
+  travel_per_floor_minutes: number;
+  /** The batch cadence, defaulted from the deployed dispatcher's config. */
+  micro_batch_interval_ms: number;
+  micro_batch_size: number;
+  simulation_horizon_days: number;
+  old_app: { manual_category_minutes: number; manual_dispatch_minutes: number };
+  new_app: { ai_classification_minutes: number; manual_review_minutes: number };
+};
+
+export type SimulationRun = {
+  generated_at: string;
+  scenario_name: string;
+  sla_policy: SimulationSlaPolicy;
+  building: { floor_count: number; units_per_floor: number };
+  settings: SimulationSettings;
+  /** The instant every unstarted ticket was judged against. */
+  horizon_end: string;
+  old_app: SimulationScenarioResult;
+  new_app: SimulationScenarioResult;
+  comparison: SimulationComparison;
+  warnings: string[];
+};
+
+/** The request body: one scenario document, not three separate sources. */
+export type SimulationRunRequest = { scenario: Record<string, unknown> };

@@ -62,6 +62,7 @@ from src.dispatch.loader import DispatchLoader, World
 from src.dispatch.planning import reindex_technicians
 from src.dispatch.scheduler import Placement, PlacementDecision, WorkUnit, decide, place, simulate
 from src.dispatch.shift import as_utc, is_within_shift, next_shift_open
+from src.domain.assignment_guard import ticket_assignment_allowed
 from src.models.enums import (
     AssignmentSource,
     ClassificationStatus,
@@ -78,12 +79,20 @@ from src.services.assignment_support import (
     NEW_ASSIGNMENT_TITLE,
     AssignmentSideEffects,
 )
-from src.services.p3_review_guard import p3_review_pending_ticket_ids
+from src.services.emergency_review_guard import emergency_review_pending_ticket_ids
 
 logger = logging.getLogger(__name__)
 
 #: P3 is the emergency priority and never reaches here; P2 outranks P1.
-PRIORITY_RANK = {Priority.P3.value: 0, Priority.P2.value: 1, Priority.P1.value: 2}
+#: Queue order, most urgent first. `docs/risk_scoring_v2.md` §6.3.
+#: P5 has no rank because it is never enqueued -- a P5 reaching this map
+#: would be a bug, and `.get(..., 9)` puts it last rather than first.
+PRIORITY_RANK = {
+    Priority.P4.value: 0,
+    Priority.P3.value: 1,
+    Priority.P2.value: 2,
+    Priority.P1.value: 3,
+}
 
 
 @dataclass
@@ -310,7 +319,7 @@ class DispatchService:
         # Two batch-wide lookups instead of two per ticket (§8). The active
         # assignments are already in `world`; the emergency gate is one more
         # statement for the whole batch.
-        gated = p3_review_pending_ticket_ids(self.db, [event.ticket_id for event in events])
+        gated = emergency_review_pending_ticket_ids(self.db, [event.ticket_id for event in events])
         report.query_count += 1
         self._recipients = self.side_effects.unit_recipients(list(tickets.values()))
         report.query_count += 1
@@ -425,8 +434,8 @@ class DispatchService:
                 self._escalate(event, DispatchEscalationReason.AUTO_ASSIGNMENT_DISABLED, now, ticket=ticket)
                 report.escalated += 1
                 continue
-            if ticket.priority is Priority.P3:
-                self._escalate(event, DispatchEscalationReason.P3_EMERGENCY, now, ticket=ticket)
+            if not ticket_assignment_allowed(ticket):
+                self._escalate(event, DispatchEscalationReason.P5_EMERGENCY, now, ticket=ticket)
                 report.escalated += 1
                 continue
             if not self._still_dispatchable(ticket, world, gated):
@@ -444,7 +453,7 @@ class DispatchService:
                         key=event.id,
                         ticket_ids=(ticket.id,),
                         duration=p80_for_code(code),
-                        score=ticket.score_total or 0,
+                        score=ticket.risk_score or 0,
                         submitted_at=as_utc(ticket.created_at),
                     ),
                 )
@@ -467,7 +476,7 @@ class DispatchService:
             return False
         if ticket.duplicate_of_ticket_id is not None:
             return False
-        if ticket.priority is Priority.P3:
+        if not ticket_assignment_allowed(ticket):
             return False
         if ticket.id in gated:
             return False

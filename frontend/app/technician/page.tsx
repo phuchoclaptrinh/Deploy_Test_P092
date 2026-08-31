@@ -89,8 +89,10 @@ export default function TechnicianQueuePage() {
     <div className="technicianQueueList">{visibleTickets.map((item, index) => {
       const start = filter === "open" ? startLabel(item.planned_start_at) : null;
       const atRisk = item.risk_state === "AT_RISK" || (item.slack_seconds ?? 0) < 0;
-      const p3Urgent = item.ticket.priority === "P3" && ["ASSIGNED", "IN_PROGRESS"].includes(item.status);
-      return <Link href={`/technician/tickets/${item.id}`} className={`technicianJobCard priority-${item.ticket.priority || "P1"}${filter === "open" && index === 0 ? " techJobNow" : ""}${p3Urgent ? " techP3Urgent" : ""}`} key={item.id}>
+      // P4, not P5: an emergency is handled by Building Management and never
+      // placed on a technician queue, so P4 is the most urgent job here.
+      const urgent = item.ticket.priority === "P4" && ["ASSIGNED", "IN_PROGRESS"].includes(item.status);
+      return <Link href={`/technician/tickets/${item.id}`} className={`technicianJobCard priority-${item.ticket.priority || "P1"}${filter === "open" && index === 0 ? " techJobNow" : ""}${urgent ? " techUrgent" : ""}`} key={item.id}>
         <header>
           {filter === "open" && <span className={`techOrderBadge${index === 0 ? " now" : ""}`}>{orderLabel(index)}</span>}
           {item.ticket.priority && <PriorityBadge priority={item.ticket.priority} />}

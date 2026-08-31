@@ -46,7 +46,6 @@ from src.models.enums import (
     Category,
     ClassificationStatus,
     Priority,
-    Severity,
     TicketStatus,
     UserRole,
 )
@@ -88,9 +87,9 @@ def build_world(db: Session, *, resident_count: int = 6, technician_count: int =
     corridor_10 = Location(floor=floor_10, location_type=corridor_type, label="Hành lang tầng 10")
     corridor_11 = Location(floor=floor_11, location_type=corridor_type, label="Hành lang tầng 11")
 
-    water = CategoryCatalog(code=Category.WATER, display_name="Rò rỉ nước", base_score=10)
-    electrical = CategoryCatalog(code=Category.POWER_OUTAGE, display_name="Chập điện", base_score=50)
-    elevator = CategoryCatalog(code=Category.ELEVATOR, display_name="Thang máy", base_score=35)
+    water = CategoryCatalog(code=Category.WATER, display_name="Rò rỉ nước")
+    electrical = CategoryCatalog(code=Category.POWER_OUTAGE, display_name="Chập điện")
+    elevator = CategoryCatalog(code=Category.ELEVATOR, display_name="Thang máy")
 
     coordinator = UserProfile(user_id=uuid4(), role=UserRole.COORDINATOR, full_name="Điều phối viên")
 
@@ -162,7 +161,7 @@ def make_ticket(
     description: str = "Sự cố cần xử lý.",
     created_at: datetime | None = None,
     priority: Priority | None = None,
-    severity: Severity | None = Severity.MEDIUM,
+    risk_score: Decimal | None = None,
     approved_at: datetime | None = None,
     sla_due_at: datetime | None = None,
     auto_assignment_paused: bool = False,
@@ -180,8 +179,7 @@ def make_ticket(
         classification_status=classification_status,
         category_id=category.id if category else None,
         priority=priority,
-        severity=severity,
-        score_total=Decimal("30.00") if priority else None,
+        risk_score=risk_score if risk_score is not None else (Decimal("30.00") if priority else None),
         created_at=created_at,
         sla_started_at=created_at,
         sla_due_at=sla_due_at,

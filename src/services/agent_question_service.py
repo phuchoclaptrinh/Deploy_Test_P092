@@ -1,10 +1,15 @@
 """Resident-question operations: asking, answering, and timing out.
 
-Only four kinds of question exist (`AgentQuestionKind`), and each is a
-confirmation of something the resident already told us -- a Category, a
-severity, the location they picked, or whether a just-closed problem came back.
-Nothing here ever asks a resident to adjudicate a duplicate or a grouping: those
-are judgements about other people's tickets, which the resident cannot see.
+Only eight kinds of question exist (`AgentQuestionKind`), and each is a
+confirmation of something the resident already told us -- a Category, the
+location they picked, whether a just-closed problem came back, or one of the
+five risk criteria the Agent could not establish on its own. Nothing here ever
+asks a resident to adjudicate a duplicate or a grouping: those are judgements
+about other people's tickets, which the resident cannot see.
+
+The five criterion questions replaced a single `SEVERITY_CONFIRMATION`. Asking
+"how serious is it?" gets an answer about how upset the resident is; asking "is
+water still coming out right now?" gets an answer that moves exactly one score.
 
 `LOCATION_CONFIRMATION` is the one kind with a structured answer, and the
 contract is enforced here rather than in the UI, because a client can call the
@@ -82,7 +87,7 @@ class AgentQuestionService(AgentServiceBase):
                 409,
             )
 
-        if self.p3_gate_is_open(ticket_id):
+        if self.emergency_gate_is_open(ticket_id):
             # A ticket waiting on an emergency review is waiting on a
             # coordinator, not on the resident.
             raise DomainError(

@@ -3,22 +3,22 @@
 from __future__ import annotations
 
 from datetime import datetime
-from decimal import Decimal
 from typing import TYPE_CHECKING
 from uuid import UUID, uuid4
 
-from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Index, Integer, Numeric, String, Text, func, text
+from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Index, Integer, String, Text, func, text
 from sqlalchemy import Enum as SQLEnum
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.types import Uuid
 
 from src.database.base import Base
-from src.models.enums import AnalysisRunStatus, Priority, Severity, SeveritySource
+from src.models.enums import AnalysisRunStatus, EmergencyDecision, EmergencyReviewStatus, Priority
 
 if TYPE_CHECKING:
     from src.database.models.ai_agent_session import AIAnalysisSession
     from src.database.models.ticket import Ticket
+    from src.database.models.ticket_risk_assessment import TicketRiskAssessment
 
 JSON_TYPE = JSONB().with_variant(JSON(), "sqlite")
 
@@ -47,9 +47,6 @@ class AIAnalysisRun(Base):
     run_number: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
     text_model_version: Mapped[str | None] = mapped_column(String(100), nullable=True)
     vision_model_version: Mapped[str | None] = mapped_column(String(100), nullable=True)
-    rule_version_id: Mapped[UUID | None] = mapped_column(
-        ForeignKey("scoring_rule_versions.id", ondelete="SET NULL"), nullable=True
-    )
     input_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
     # The answer: one Category for the ticket, plus the two evidence fields
     # that explain how it was reached. `text_category_id` and
@@ -68,27 +65,43 @@ class AIAnalysisRun(Base):
     # Why the ticket was classified the way it was. Shown to management, so it
     # is a full sentence rather than the 500-char note `confidence_notes` was.
     ai_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
-    red_flag: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
     # SAME_INCIDENT / DIFFERENT_INCIDENT / UNCERTAIN, and the sentence behind
     # it. Management reads `duplicate_reason` to understand an uncertain
     # verdict, which is a different question from `ai_reason` above.
     duplicate_verdict: Mapped[str | None] = mapped_column(String(30), nullable=True)
     duplicate_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     # --- The mandatory human gate in front of the emergency priority. ---
-    # P3 is the five-minute-SLA priority, so a P3 classification is not
+    # P5 is the five-minute-SLA priority, so a P5 classification is not
     # published automatically: the run parks here and a coordinator either
     # confirms the emergency or downgrades it.
     #
-    # Naming note: P1/P2/P3 is `Priority` in this codebase; `severity` is
-    # LOW/MEDIUM/HIGH and is a different column two lines down. These columns
-    # hold priorities, and are named for what they hold.
-    p3_review_status: Mapped[str | None] = mapped_column(String(20), nullable=True)
-    p3_reviewed_by: Mapped[UUID | None] = mapped_column(
+    # Renamed from `p3_review_*` by `a1b2c3d4e5f7`. Only the band moved -- v2
+    # inverted the scale, so the emergency that used to be P3 is now P5 -- and
+    # keeping the old names would have left every screen reading "P3 review" on
+    # a ticket showing P5.
+    emergency_review_status: Mapped[EmergencyReviewStatus | None] = mapped_column(
+        SQLEnum(
+            EmergencyReviewStatus,
+            name="emergency_review_status_enum",
+            native_enum=True,
+            values_callable=enum_values,
+        ),
+        nullable=True,
+    )
+    emergency_reviewed_by: Mapped[UUID | None] = mapped_column(
         ForeignKey("user_profiles.user_id", ondelete="SET NULL"), nullable=True
     )
-    p3_reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    p3_decision: Mapped[str | None] = mapped_column(String(30), nullable=True)
-    p3_decision_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    emergency_reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    emergency_decision: Mapped[EmergencyDecision | None] = mapped_column(
+        SQLEnum(
+            EmergencyDecision,
+            name="emergency_decision_enum",
+            native_enum=True,
+            values_callable=enum_values,
+        ),
+        nullable=True,
+    )
+    emergency_decision_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     #: What the pipeline scored before a human looked at it, kept so a
     #: downgrade never erases what the AI actually said.
     ai_priority_before_review: Mapped[Priority | None] = mapped_column(
@@ -100,7 +113,11 @@ class AIAnalysisRun(Base):
         SQLEnum(Priority, name="priority_level_enum", native_enum=True, values_callable=enum_values), nullable=True
     )
     # How the background grouping stage ended for this run.
-    grouping_status: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    #: Widened to 50 in `d4e5f6a7b9ca`. WAITING_EMERGENCY_MANAGEMENT_REVIEW is
+    #: 35 characters, and at String(30) PostgreSQL rejected the whole finalize
+    #: transaction -- which silently rolled back a genuine P5 classification.
+    #: SQLite does not enforce the limit, so only production ever saw it.
+    grouping_status: Mapped[str | None] = mapped_column(String(50), nullable=True)
     grouping_candidates: Mapped[list[dict[str, object]] | None] = mapped_column(JSON_TYPE, nullable=True)
     # Superseded by the three *_category_id columns above and kept nullable for
     # audit only: rows written before the pipelines were merged still carry the
@@ -108,24 +125,13 @@ class AIAnalysisRun(Base):
     # writes them any more.
     text_categories: Mapped[list[str] | None] = mapped_column(JSON_TYPE, nullable=True)
     image_categories: Mapped[list[str] | None] = mapped_column(JSON_TYPE, nullable=True)
-    red_flag_text: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
-    red_flag_signal: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
-    severity: Mapped[Severity | None] = mapped_column(
-        SQLEnum(Severity, name="severity_v2_enum", native_enum=True, values_callable=enum_values), nullable=True
-    )
-    severity_source: Mapped[SeveritySource | None] = mapped_column(
-        SQLEnum(SeveritySource, name="severity_source_enum", native_enum=True, values_callable=enum_values), nullable=True
-    )
     category_match: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
-    score_components: Mapped[dict[str, object] | None] = mapped_column(JSON_TYPE, nullable=True)
-    score_total: Mapped[Decimal | None] = mapped_column(Numeric(7, 2), nullable=True)
-    priority_raw: Mapped[Priority | None] = mapped_column(
-        SQLEnum(Priority, name="priority_level_enum", native_enum=True, values_callable=enum_values), nullable=True
+    #: The assessment this run produced. Everything about how the priority was
+    #: arrived at -- the five criteria, the blockers, the evidence, the score --
+    #: lives on that row, and none of it is restated here.
+    risk_assessment_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("ticket_risk_assessments.id", ondelete="SET NULL"), nullable=True
     )
-    priority_final: Mapped[Priority | None] = mapped_column(
-        SQLEnum(Priority, name="priority_level_enum", native_enum=True, values_callable=enum_values), nullable=True
-    )
-    ceiling_applied: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
     status: Mapped[AnalysisRunStatus] = mapped_column(
         SQLEnum(AnalysisRunStatus, name="analysis_run_status_enum", native_enum=True, values_callable=enum_values),
         nullable=False,
@@ -142,11 +148,10 @@ class AIAnalysisRun(Base):
     is_confident: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     confidence_notes: Mapped[str | None] = mapped_column(String(500), nullable=True)
     grouping: Mapped[dict[str, object] | None] = mapped_column(JSON_TYPE, nullable=True)
-    # §7.2: the validated duplicate/red-flag evidence exactly as finalize
-    # accepted it. Kept as the audit copy of what the ticket columns were set
-    # from, so a later coordinator split does not erase what the Agent claimed.
+    # §7.2: the validated duplicate evidence exactly as finalize accepted it.
+    # Kept as the audit copy of what the ticket columns were set from, so a
+    # later coordinator split does not erase what the Agent claimed.
     duplicate: Mapped[dict[str, object] | None] = mapped_column(JSON_TYPE, nullable=True)
-    red_flag_relation: Mapped[dict[str, object] | None] = mapped_column(JSON_TYPE, nullable=True)
     # §1.7.9: replaying the same finalize returns the stored run; a different
     # payload under the same key is a 409. The hash covers the whole validated
     # payload, so "same" means the same decision, not the same key.
@@ -164,3 +169,4 @@ class AIAnalysisRun(Base):
 
     ticket: Mapped[Ticket] = relationship(back_populates="ai_analysis_runs", foreign_keys=[ticket_id])
     analysis_session: Mapped[AIAnalysisSession | None] = relationship()
+    risk_assessment: Mapped[TicketRiskAssessment | None] = relationship(foreign_keys=[risk_assessment_id])

@@ -49,18 +49,23 @@ class Category(str, Enum):  # noqa: UP042
     COMMON_AREA_DAMAGE = "COMMON_AREA_DAMAGE"
 
 
-class Severity(str, Enum):  # noqa: UP042
-    LOW = "LOW"
-    MEDIUM = "MEDIUM"
-    HIGH = "HIGH"
-
-
 class Priority(str, Enum):  # noqa: UP042
-    """Only real priorities. P0 is classification_status=MANUAL_REVIEW."""
+    """The five risk bands of `docs/risk_scoring_v2.md`, lowest urgency first.
+
+    **The direction flipped in v2.** P3 used to be the five-minute emergency and
+    P1 the routine multi-day promise. Now P1 is the routine band and **P5 is the
+    emergency**, handled manually and never placed by any automatic path. Any
+    comparison written before v2 means the opposite of what it says.
+
+    P0 is still not a member: "nobody could classify this" is
+    `classification_status=MANUAL_REVIEW`, not a priority.
+    """
 
     P1 = "P1"
     P2 = "P2"
     P3 = "P3"
+    P4 = "P4"
+    P5 = "P5"
 
 
 class AssignmentStatus(str, Enum):  # noqa: UP042
@@ -105,12 +110,55 @@ class AnalysisRunStatus(str, Enum):  # noqa: UP042
     FAILED = "FAILED"
 
 
-class SeveritySource(str, Enum):  # noqa: UP042
-    VISION = "VISION"
-    TEXT_FALLBACK = "TEXT_FALLBACK"
-    # §8.3: the Coordinator picked the severity by hand during manual review,
-    # because the analysis never produced one. Never written by an Agent run.
-    COORDINATOR_MANUAL = "COORDINATOR_MANUAL"
+class RiskAssessmentSource(str, Enum):  # noqa: UP042
+    """What produced one `ticket_risk_assessments` revision.
+
+    The table is append-only, so every row needs to say why it exists. These
+    four are the only things that may write one, and they are kept apart
+    because "the case grew" and "a human overruled it" are different stories to
+    a reviewer even when they land on the same priority.
+    """
+
+    #: The Agent scored the ticket and the backend turned that into a priority.
+    AI_ANALYSIS = "AI_ANALYSIS"
+    #: A case gained or lost a member, so every member's confirmed scope moved.
+    GROUPING_RESCORE = "GROUPING_RESCORE"
+    #: A coordinator confirmed or downgraded at the emergency gate.
+    HUMAN_REVIEW = "HUMAN_REVIEW"
+    #: A confident duplicate of an emergency pulled its master up to P5.
+    DUPLICATE_ESCALATION = "DUPLICATE_ESCALATION"
+
+
+class EmergencyReviewStatus(str, Enum):  # noqa: UP042
+    """The mandatory human gate in front of P5.
+
+    P5 means "somebody is dealing with this by hand, right now". Nothing
+    automatic decides that on its own and nothing automatic runs behind it, so a
+    P5 classification parks here until a coordinator either confirms the
+    emergency or downgrades it.
+
+    Replaces `p3_review_status`: the gate did not change, only which band sits
+    behind it.
+    """
+
+    NOT_REQUIRED = "NOT_REQUIRED"
+    PENDING = "PENDING"
+    CONFIRMED = "CONFIRMED"
+    DOWNGRADED = "DOWNGRADED"
+
+
+class EmergencyDecision(str, Enum):  # noqa: UP042
+    """The only two things a coordinator may do at the emergency gate.
+
+    Confirming ends the automation deliberately -- correlating an emergency with
+    other tickets is not worth the minutes it costs, and confirming does *not*
+    unlock assignment: a confirmed P5 is still handled outside the system.
+    Downgrading is the only way back into the pipeline, and it cannot land on P5
+    again -- confirming is the action for that.
+    """
+
+    CONFIRM_P5 = "CONFIRM_P5"
+    DOWNGRADE_PRIORITY = "DOWNGRADE_PRIORITY"
 
 
 class InformationRequestStatus(str, Enum):  # noqa: UP042
@@ -184,6 +232,11 @@ class AssignmentEndReason(str, Enum):  # noqa: UP042
     COORDINATOR_REASSIGNED = "COORDINATOR_REASSIGNED"
     COMPLETED = "COMPLETED"
     UNABLE_TO_HANDLE = "UNABLE_TO_HANDLE"
+    #: The ticket was re-scored to P5 while a technician held it. The work does
+    #: not move to another technician -- it leaves the dispatch system entirely
+    #: -- so this is neither a rejection nor a reassignment, and it must not put
+    #: anyone on an exclusion list for a decision they had no part in.
+    EMERGENCY_MANUAL_ESCALATION = "EMERGENCY_MANUAL_ESCALATION"
 
 
 EXCLUDING_END_REASONS = frozenset({AssignmentEndReason.TECHNICIAN_REJECTED})
@@ -191,9 +244,9 @@ EXCLUDING_END_REASONS = frozenset({AssignmentEndReason.TECHNICIAN_REJECTED})
 
 class TicketRelationType(str, Enum):  # noqa: UP042
     """§7.7. A relation, never a duplicate link: the source ticket stays in the
-    normal queue and keeps its own P3 handling."""
+    normal queue and keeps its own emergency handling."""
 
-    RED_FLAG_EVIDENCE = "RED_FLAG_EVIDENCE"
+    EMERGENCY_EVIDENCE = "EMERGENCY_EVIDENCE"
 
 
 class InvalidReason(str, Enum):  # noqa: UP042
@@ -271,9 +324,9 @@ class DispatchDecisionSource(str, Enum):  # noqa: UP042
 class DispatchEscalationReason(str, Enum):  # noqa: UP042
     """Why an event went to Building Management instead of being assigned.
 
-    Every one of these is a normal outcome rather than an error. `P3_EMERGENCY`
-    should never actually be written -- a P3 ticket is refused at enqueue time
-    -- but it exists so that a P3 arriving here through some future path is
+    Every one of these is a normal outcome rather than an error. `P5_EMERGENCY`
+    should never actually be written -- a P5 ticket is refused at enqueue time
+    -- but it exists so that a P5 arriving here through some future path is
     recorded as escalated rather than quietly assigned.
     """
 
@@ -281,7 +334,7 @@ class DispatchEscalationReason(str, Enum):  # noqa: UP042
     NO_FEASIBLE_PLACEMENT = "NO_FEASIBLE_PLACEMENT"
     AUTO_ASSIGNMENT_DISABLED = "AUTO_ASSIGNMENT_DISABLED"
     TICKET_NOT_ELIGIBLE = "TICKET_NOT_ELIGIBLE"
-    P3_EMERGENCY = "P3_EMERGENCY"
+    P5_EMERGENCY = "P5_EMERGENCY"
 
 
 class PlacementWarningCode(str, Enum):  # noqa: UP042

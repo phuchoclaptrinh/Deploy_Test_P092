@@ -7,6 +7,7 @@ import { TicketDetailPanel } from "@/components/manager/TicketDetailPanel";
 import { ManagerSurface } from "@/components/manager/ManagerSurface";
 import { RoleShell } from "@/components/RoleShell";
 import { PriorityBadge } from "@/components/StatusBadge";
+import { PRIORITIES } from "@/lib/risk";
 import { formatCategoryName } from "@/lib/category";
 import type { CoordinatorCluster, CoordinatorClusterTicket, TechnicianSummary } from "@/types/api";
 
@@ -39,6 +40,16 @@ function CaseDetail({ cluster, technicians, selectedTicketId, busy, error, notic
 }
 function RemoveModal({ ticket, caseId, busy, error, cancel, confirm }: { ticket: CoordinatorClusterTicket; caseId: string; busy: boolean; error: string; cancel: () => void; confirm: () => void }) { return <div className="modalBackdrop"><section className="managerModal"><header><strong>Loại ticket khỏi cụm?</strong><button className="iconButton" onClick={cancel} aria-label="Đóng"><X size={17} /></button></header><div className="managerModalBody"><p>Ticket {ticket.display_code} sẽ không còn thuộc Case #{caseId.slice(0, 8).toUpperCase()}. Ticket vẫn được giữ trong hệ thống và không bị xóa.</p>{error && <div className="alert error">{error}</div>}<div className="modalActions"><button className="button secondary" disabled={busy} onClick={cancel}>Hủy</button><button className="button destructive" disabled={busy} onClick={confirm}>{busy ? "Đang loại..." : "Loại khỏi cụm"}</button></div></div></section></div>; }
 function AssignModal({ technicians, busy, close, submit }: { technicians: TechnicianSummary[]; busy: boolean; close: () => void; submit: (id: string) => void }) { const [id, setId] = useState(technicians.find((row) => row.is_available)?.user_id || ""); return <div className="modalBackdrop"><section className="managerModal"><header><strong>Gán kỹ thuật viên</strong><button className="iconButton" onClick={close}><X size={17} /></button></header><div className="managerModalBody"><select value={id} onChange={(event) => setId(event.target.value)}><option value="">Chọn kỹ thuật viên</option>{technicians.filter((row) => row.is_available).map((row) => <option value={row.user_id} key={row.user_id}>{row.full_name || row.user_id}</option>)}</select><div className="modalActions"><button className="button secondary" onClick={close}>Hủy</button><button className="button" disabled={!id || busy} onClick={() => submit(id)}>Gán</button></div></div></section></div>; }
-function highestPriority(tickets: CoordinatorClusterTicket[]) { return tickets.some((ticket) => ticket.priority === "P3") ? "P3" : tickets.some((ticket) => ticket.priority === "P2") ? "P2" : tickets.some((ticket) => ticket.priority === "P1") ? "P1" : "—"; }
+/** The most urgent band anyone in the case holds.
+ *
+ *  Walked from the top of the scale down rather than spelled out band by band,
+ *  so adding a band later cannot leave this function silently reading the
+ *  second-most-urgent one. A P5 should never appear here — an emergency is
+ *  detached from its case — but it is checked first anyway, because a case that
+ *  somehow held one is exactly when a manager must not be shown "P4". */
+function highestPriority(tickets: CoordinatorClusterTicket[]) {
+  const found = [...PRIORITIES].reverse().find((band) => tickets.some((ticket) => ticket.priority === band));
+  return found ?? "—";
+}
 function caseStatus(cluster: CoordinatorCluster) { return cluster.closed ? "Hoàn thành" : "Đang theo dõi"; }
 function shortDate(value: string) { const date = new Date(value); return Number.isNaN(date.getTime()) ? "Chưa xác định" : new Intl.DateTimeFormat("vi-VN", { hour: "2-digit", minute: "2-digit", day: "2-digit", month: "2-digit" }).format(date); }

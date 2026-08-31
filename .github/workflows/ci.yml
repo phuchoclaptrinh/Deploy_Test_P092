@@ -2,13 +2,21 @@ name: CI
 
 on:
   push:
-    branches: [main, develop]
+    branches: [main, hungphuc, develop, ci-test]
   pull_request:
-    branches: [main]
+    branches: [main, hungphuc, intergration]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   lint-and-test:
-    runs-on: [self-hosted, Linux, X64, cohort3]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
 
     steps:
       - uses: actions/checkout@v4
@@ -23,13 +31,44 @@ jobs:
         # requirements-dev.txt kéo theo requirements.txt qua `-r`, và là nơi
         # chứa ruff + pytest. Chỉ cài requirements.txt thì hai bước dưới chết
         # với "command not found" trước khi kịp kiểm tra bất cứ thứ gì.
-        run: pip install -r requirements-dev.txt
+        run: python -m pip install --retries 5 --timeout 90 -r requirements-dev.txt
 
       - name: Lint with ruff
-        run: ruff check src/ tests/
+        run: python -m ruff check src/ tests/
 
       - name: Run tests
-        run: pytest tests/ -v --tb=short
+        run: python -m pytest tests/ -v --tb=short
         env:
           APP_ENV: test
           OPENAI_API_KEY: test-key
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Test frontend
+        working-directory: frontend
+        run: npm test
+
+      - name: Typecheck frontend
+        working-directory: frontend
+        run: npm run typecheck
+
+      - name: Build frontend
+        working-directory: frontend
+        run: npm run build
+        env:
+          NEXT_PUBLIC_API_URL: https://example.com
+          NEXT_PUBLIC_API_BASE_URL: https://example.com/api/v1
+          NEXT_PUBLIC_AUTH_DISABLED: "false"
+          NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
+          NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: test-key
+          NEXT_PUBLIC_DEV_PASSWORD_LOGIN: "false"
+          NEXT_PUBLIC_DEV_AUTH_ENABLED: "false"

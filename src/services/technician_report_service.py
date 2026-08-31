@@ -23,6 +23,7 @@ from src.database.models.technician import TechnicianProfile
 from src.database.models.technician_availability import TechnicianAvailabilityEvent
 from src.database.models.ticket import Ticket
 from src.database.models.ticket_assignment import TicketAssignment
+from src.domain.sla_clock import counts_toward_compliance
 from src.models.enums import AssignmentStatus
 
 REPORT_PERIODS = ("week", "month")
@@ -97,7 +98,11 @@ class TechnicianReportService:
         assignments = list(
             self.db.scalars(
                 select(TicketAssignment)
-                .options(joinedload(TicketAssignment.ticket).load_only(Ticket.id, Ticket.sla_due_at))
+                .options(
+                    joinedload(TicketAssignment.ticket).load_only(
+                        Ticket.id, Ticket.sla_due_at, Ticket.priority
+                    )
+                )
                 .order_by(TicketAssignment.assigned_at.asc())
             ).unique()
         )
@@ -119,10 +124,37 @@ class TechnicianReportService:
                     completed += 1
                     history = by_ticket.get(assignment.ticket_id, [])
                     latest = history[-1] if history else None
-                    due_at = _as_utc(assignment.ticket.sla_due_at) if assignment.ticket else None
+                    ticket = assignment.ticket
+                    due_at = _as_utc(ticket.sla_due_at) if ticket else None
+                    started_at = _as_utc(assignment.started_at)
                     # §2.13: lateness is judged on the latest hand-over, so an
                     # earlier technician's expired clock is not counted twice.
-                    if latest is not None and latest.id == assignment.id and due_at and completed_at > due_at:
+                    #
+                    # And it is judged on when the technician *started*, not on
+                    # when they finished (`docs/risk_scoring_v2.md` §6). A job
+                    # begun on time that turned out to need four hours is not a
+                    # missed promise; the promise was that somebody would come.
+                    #
+                    # A P5 is skipped entirely rather than scored as a pass: it
+                    # is never dispatched, so it is neither this technician's
+                    # success nor their failure.
+                    countable = ticket is not None and ticket.priority is not None and counts_toward_compliance(
+                        ticket.priority
+                    )
+                    #
+                    # An assignment with no recorded start is not counted late.
+                    # The promise is about when work began, and a missing
+                    # timestamp is not evidence that it began late -- calling it
+                    # a violation would charge a technician for a gap in the
+                    # record.
+                    if (
+                        countable
+                        and latest is not None
+                        and latest.id == assignment.id
+                        and due_at
+                        and started_at is not None
+                        and started_at > due_at
+                    ):
                         late += 1
                 assigned_at = _as_utc(assignment.assigned_at)
                 if assigned_at and start <= assigned_at < end:

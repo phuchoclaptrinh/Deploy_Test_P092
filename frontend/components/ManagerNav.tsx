@@ -1,6 +1,6 @@
 "use client";
 
-import { BarChart3, Building2, History, Layers3, LayoutDashboard, LogOut, PanelLeft, ScrollText, SlidersHorizontal, UserRound, Users, Wrench } from "lucide-react";
+import { BarChart3, Building2, FlaskConical, History, Layers3, LayoutDashboard, LogOut, PanelLeft, ScrollText, SlidersHorizontal, UserRound, Users, Wrench } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
@@ -42,6 +42,13 @@ export function ManagerNav({ open = false, collapsed = false, onNavigate, onTogg
             place anything, and §10 requires an answer to it. */}
         <Link className={pathname === "/manager/dispatch" ? "active" : ""} href="/manager/dispatch" title="Phân việc tự động" onClick={onNavigate}>
           <History size={18} /><span>Phân việc tự động</span>
+        </Link>
+        {/* A planning tool, not an operational view: it replays a pasted
+            dataset and writes nothing. It sits next to the dispatch history
+            because both answer "how is the automatic path actually doing?" --
+            one from what happened, one from what would. */}
+        <Link className={pathname === "/manager/simulation" ? "active" : ""} href="/manager/simulation" title="Mô phỏng công suất" onClick={onNavigate}>
+          <FlaskConical size={18} /><span>Mô phỏng công suất</span>
         </Link>
         <Link className={pathname === "/manager/clusters" ? "active" : ""} href="/manager/clusters" title="Cụm ticket" onClick={onNavigate}>
           <Layers3 size={18} /><span>Cụm ticket</span>

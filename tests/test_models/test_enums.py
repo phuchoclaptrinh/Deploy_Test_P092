@@ -11,7 +11,6 @@ from src.models.enums import (
     DispatchRiskState,
     InvalidReason,
     Priority,
-    Severity,
     TicketStatus,
     UserRole,
 )
@@ -22,7 +21,7 @@ def test_self_dev_v3_roles_are_exactly_three():
 
 
 def test_p0_is_not_a_priority():
-    assert [x.value for x in Priority] == ["P1", "P2", "P3"]
+    assert [x.value for x in Priority] == ["P1", "P2", "P3", "P4", "P5"]
     assert ClassificationStatus.MANUAL_REVIEW.value == "MANUAL_REVIEW"
 
 
@@ -93,10 +92,12 @@ def test_v4_operational_enums_match_the_contract():
     assert EXCLUDING_END_REASONS == {AssignmentEndReason.TECHNICIAN_REJECTED}
 
 
-def test_canonical_category_and_severity_taxonomy():
+def test_canonical_category_taxonomy():
     assert {x.value for x in Category} == {
         "WATER", "WALL_DAMP", "ELEVATOR", "POWER_OUTAGE", "SECURITY_SAFETY",
         "NOISE", "LOCK_DOOR", "HVAC", "ODOR_HYGIENE", "INTERNET_TV",
         "COMMON_AREA_DAMAGE",
     }
-    assert [x.value for x in Severity] == ["LOW", "MEDIUM", "HIGH"]
+    # No Severity beside it any more: LOW/MEDIUM/HIGH was replaced by the
+    # five-criterion rubric, and Category is now a routing label that takes no
+    # part in scoring at all.

@@ -11,7 +11,6 @@ from src.database.models.floor import Floor
 from src.database.models.location import Location
 from src.database.models.location_type import LocationType
 from src.models.api.errors import CATEGORY_REQUIRED, DomainError
-from src.models.enums import Priority
 
 
 class CatalogRepository:
@@ -65,23 +64,21 @@ class CatalogRepository:
             select(CategoryCatalog).where(CategoryCatalog.code == self.normalize_category_code(code))
         )
 
-    def create_category(
-        self,
-        code: str,
-        display_name: str,
-        base_score: int | None,
-        priority_ceiling: Priority | None,
-    ) -> CategoryCatalog:
+    def create_category(self, code: str, display_name: str) -> CategoryCatalog:
+        """A code and a name. There is nothing else to configure.
+
+        `base_score` and `priority_ceiling` used to be required here, and the
+        "an active Category requires a base_score" rule guarded a real hazard:
+        an unscored category silently made a ticket unscoreable. Under the v2
+        rubric a category is not an input to a score at all, so both the fields
+        and the rule that protected them are gone.
+        """
         normalized = self.normalize_category_code(code)
         if self.get_category_by_code_any_status(normalized) is not None:
             raise DomainError(CATEGORY_REQUIRED, "Category code already exists.", 409)
-        if base_score is None:
-            raise DomainError(CATEGORY_REQUIRED, "Active Category requires base_score.", 409)
         row = CategoryCatalog(
             code=normalized,
             display_name=display_name.strip(),
-            base_score=base_score,
-            priority_ceiling=priority_ceiling,
             is_active=True,
         )
         self.db.add(row)

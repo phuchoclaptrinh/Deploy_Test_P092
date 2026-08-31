@@ -3,7 +3,7 @@
 §2's flow has a step that used to be a person:
 
     resident submits -> AI classification -> classification is eligible
-      -> not duplicate -> not P3 -> **skip grouping** -> assign
+      -> not duplicate -> not P5 -> **skip grouping** -> assign
 
 "Automatically approved" is that step. With the switch on, a ticket the AI
 classified confidently does not wait in the manager queue for someone to press
@@ -39,7 +39,7 @@ from src.database.models.ticket_status_history import TicketStatusHistory
 from src.dispatch.enqueue import automatic_assignment_enabled, enqueue, ticket_is_dispatchable
 from src.models.enums import ClassificationStatus, Priority, TicketStatus
 from src.services.assignment_support import AssignmentSideEffects
-from src.services.p3_review_guard import p3_review_is_pending
+from src.services.emergency_review_guard import emergency_review_is_pending
 
 logger = logging.getLogger(__name__)
 
@@ -66,9 +66,9 @@ def eligible_for_automatic_approval(db: Session, ticket: Ticket) -> bool:
         return False
     if ticket.duplicate_of_ticket_id is not None:
         return False
-    if ticket.priority is Priority.P3:
+    if ticket.priority is Priority.P5:
         return False
-    return not p3_review_is_pending(db, ticket.id)
+    return not emergency_review_is_pending(db, ticket.id)
 
 
 def auto_approve_and_dispatch(db: Session, ticket: Ticket, run=None) -> bool:

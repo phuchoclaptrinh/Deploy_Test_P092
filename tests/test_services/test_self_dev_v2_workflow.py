@@ -26,7 +26,6 @@ from src.models.enums import (
     Category,
     ClassificationStatus,
     Priority,
-    Severity,
     TicketStatus,
     UserRole,
 )
@@ -50,7 +49,7 @@ def _seed_core(db_session):
         location_type=location_type,
         label="Hành lang tầng 10",
     )
-    category = CategoryCatalog(code=Category.WATER, display_name="Rò rỉ nước", base_score=10)
+    category = CategoryCatalog(code=Category.WATER, display_name="Rò rỉ nước")
 
     resident_id = uuid4()
     second_resident_id = uuid4()
@@ -114,7 +113,6 @@ def _approved_ticket(db_session, resident, coordinator, binding, location, categ
     ticket.classification_status = ClassificationStatus.RESOLVED
     ticket.category_id = category.id
     ticket.category = category
-    ticket.severity = Severity.MEDIUM
     ticket.priority = Priority.P1
     db_session.commit()
     return CoordinatorService(db_session).approve(coordinator.user_id, ticket.id)
@@ -138,7 +136,6 @@ def test_resident_create_then_coordinator_assigns_and_technician_completes(db_se
     locked.classification_status = ClassificationStatus.RESOLVED
     locked.category_id = category.id
     locked.category = category
-    locked.severity = Severity.MEDIUM
     locked.priority = Priority.P1
     db_session.commit()
 
@@ -261,7 +258,6 @@ def test_coordinator_cannot_override_classification_after_approval(db_session):
     ticket.classification_status = ClassificationStatus.RESOLVED
     ticket.category_id = category.id
     ticket.priority = Priority.P2
-    ticket.severity = Severity.MEDIUM
     db_session.commit()
 
     service = CoordinatorService(db_session)
@@ -294,10 +290,10 @@ def test_manual_review_source_must_match_latest_ai_prediction(db_session):
     from src.database.models.ai_analysis import AIAnalysisRun
     from src.models.api.coordinator import ManualReviewResolveRequest
     from src.models.api.errors import CATEGORY_REQUIRED, DomainError
-    from src.models.enums import AnalysisRunStatus, ResolutionSource, SeveritySource
+    from src.models.enums import AnalysisRunStatus, ResolutionSource
 
     resident, _second, coordinator, _technician, binding, location, water = _seed_core(db_session)
-    electrical = CategoryCatalog(code=Category.POWER_OUTAGE, display_name="Chập điện", base_score=50)
+    electrical = CategoryCatalog(code=Category.POWER_OUTAGE, display_name="Chập điện")
     db_session.add(electrical)
     db_session.flush()
 
@@ -307,7 +303,6 @@ def test_manual_review_source_must_match_latest_ai_prediction(db_session):
         TicketCreateRequest(location_id=location.id, description="Có nước và dây điện bất thường"),
     )
     ticket.classification_status = ClassificationStatus.MANUAL_REVIEW
-    ticket.severity = Severity.HIGH
     db_session.add(
         AIAnalysisRun(
             ticket_id=ticket.id,
@@ -316,10 +311,6 @@ def test_manual_review_source_must_match_latest_ai_prediction(db_session):
             vision_model_version="vision-v1",
             text_categories=[Category.WATER.value],
             image_categories=[Category.POWER_OUTAGE.value],
-            red_flag_text=False,
-            red_flag_signal=False,
-            severity=Severity.HIGH,
-            severity_source=SeveritySource.VISION,
             category_match=False,
             status=AnalysisRunStatus.SUCCEEDED,
         )
@@ -353,7 +344,6 @@ def test_completion_requires_technician_owned_evidence(db_session):
     ticket.classification_status = ClassificationStatus.RESOLVED
     ticket.category_id = category.id
     ticket.category = category
-    ticket.severity = Severity.MEDIUM
     ticket.priority = Priority.P1
     db_session.commit()
     CoordinatorService(db_session).approve(coordinator.user_id, ticket.id)
@@ -418,7 +408,7 @@ def test_assignment_requires_matching_technician_skill(db_session):
 
 def test_ticket_lists_filter_by_category_id_including_dynamic_category(db_session):
     resident, _second, coordinator, _technician, binding, location, water = _seed_core(db_session)
-    dynamic = CategoryCatalog(code="CUSTOM_DYNAMIC", display_name="Custom dynamic", base_score=12)
+    dynamic = CategoryCatalog(code="CUSTOM_DYNAMIC", display_name="Custom dynamic")
     db_session.add(dynamic)
     db_session.commit()
 
@@ -488,7 +478,7 @@ def test_coordinator_ticket_list_orders_newest_first(db_session):
 
 def test_assignment_rejects_wrong_skill(db_session):
     resident, _second, coordinator, technician, binding, location, category = _seed_core(db_session)
-    wrong = CategoryCatalog(code=Category.POWER_OUTAGE, display_name="Chập điện", base_score=50)
+    wrong = CategoryCatalog(code=Category.POWER_OUTAGE, display_name="Chập điện")
     db_session.add(wrong)
     for skill in list(technician.skills):
         db_session.delete(skill)
@@ -607,7 +597,7 @@ def test_technician_queue_sorts_by_priority_and_includes_attachment_metadata(db_
 
     resident, _second, coordinator, technician, binding, location, category = _seed_core(db_session)
     tickets = []
-    for label, priority in (("p1", Priority.P1), ("p3", Priority.P3), ("p2", Priority.P2)):
+    for label, priority in (("p1", Priority.P1), ("p4", Priority.P4), ("p2", Priority.P2)):
         ticket = _approved_ticket(db_session, resident, coordinator, binding, location, category)
         ticket.description = label
         ticket.priority = priority
@@ -615,7 +605,7 @@ def test_technician_queue_sorts_by_priority_and_includes_attachment_metadata(db_
         assignment = AssignmentService(db_session).assign(
             coordinator.user_id, ticket.id, technician.user_id, now=IN_SHIFT
         )
-        if priority == Priority.P3:
+        if priority == Priority.P4:
             db_session.add(
                 TicketAttachment(
                     ticket_id=ticket.id,
@@ -633,13 +623,14 @@ def test_technician_queue_sorts_by_priority_and_includes_attachment_metadata(db_
     rows = AssignmentRepository(db_session).list_for_technician(technician.user_id)
     responses = [assignment_response(row).model_dump() for row in rows]
 
-    assert [item["ticket"]["priority"] for item in responses] == ["P3", "P2", "P1"]
-    p3 = responses[0]
-    assert p3["ticket"]["sla_due_at"] == tickets[1][0].sla_due_at
-    assert p3["ticket"]["attachments"][0]["download_url_endpoint"].startswith("/api/v1/technician/assignments/")
-    assert "score_total" not in str(p3)
-    assert "model_version" not in str(p3)
-    assert "object_path" not in str(p3)
+    # P4 is the most urgent band a technician can hold: P5 never reaches one.
+    assert [item["ticket"]["priority"] for item in responses] == ["P4", "P2", "P1"]
+    urgent = responses[0]
+    assert urgent["ticket"]["sla_due_at"] == tickets[1][0].sla_due_at
+    assert urgent["ticket"]["attachments"][0]["download_url_endpoint"].startswith("/api/v1/technician/assignments/")
+    assert "risk_score" not in str(urgent)
+    assert "model_version" not in str(urgent)
+    assert "object_path" not in str(urgent)
 
 
 def test_technician_download_masks_other_assignment_and_wrong_ticket_attachment(db_session):

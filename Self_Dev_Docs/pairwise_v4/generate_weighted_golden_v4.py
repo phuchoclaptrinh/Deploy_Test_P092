@@ -4,10 +4,9 @@ import csv
 import itertools
 import json
 import random
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Iterable
-
 
 SEED = 9204
 OUTPUT_DIR = Path(__file__).resolve().parent

@@ -1,0 +1,683 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="FixIt — màn đăng nhập, bốn nhịp giới thiệu bên trái, điện thoại nghiêng theo chuột bên phải.">
+<title>FixIt Login</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+<style>
+/* ============================================================
+   FixIt — Cinematic Login
+   Trái : chữ theo nhịp + điện thoại đang chạy (thay khối thành phố)
+   Phải : form đăng nhập
+   Bảng màu, type scale và form giữ nguyên bản gốc.
+   ============================================================ */
+
+*, *::before, *::after { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; background: #fff; }
+
+.root {
+  --fx-blue: #1D4ED8;
+  --fx-blue-600: #2563EB;
+  --fx-line: #DCE7F9;
+  --fx-ink: #12356B;
+  --fx-text: #0B1F3F;
+  --fx-muted: #5B7192;
+  --fx-app: #2C6BEE;
+
+  --fx-display: 'Be Vietnam Pro', 'Segoe UI', system-ui, sans-serif;
+  --fx-body: 'Inter', 'Be Vietnam Pro', system-ui, -apple-system, sans-serif;
+
+  display: grid;
+  grid-template-columns: 1.22fr 0.78fr;
+  min-height: 100dvh;
+  font-family: var(--fx-body);
+  color: var(--fx-text);
+  background: #fff;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ── PROMO ─────────────────────────────────────────────────── */
+.promo {
+  position: relative; overflow: hidden; isolation: isolate;
+  display: flex; flex-direction: column;
+  padding: clamp(22px, 2.8vw, 44px);
+  color: var(--fx-ink); border-right: 1px solid #E6EDF9;
+  background:
+    radial-gradient(105% 75% at 4% -6%, #FFFFFF 0%, rgba(255,255,255,0) 58%),
+    radial-gradient(85% 70% at 100% 106%, #D6E3F6 0%, rgba(214,227,246,0) 60%),
+    linear-gradient(152deg, #FBFCFF 0%, #F0F5FC 46%, #E2EBF8 100%);
+}
+.promo::before {
+  content: ''; position: absolute; inset: 0; z-index: 0; pointer-events: none;
+  background-image:
+    linear-gradient(rgba(26,62,122,.055) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(26,62,122,.055) 1px, transparent 1px);
+  background-size: 58px 58px;
+  -webkit-mask-image: radial-gradient(88% 74% at 32% 16%, #000 0%, transparent 82%);
+  mask-image: radial-gradient(88% 74% at 32% 16%, #000 0%, transparent 82%);
+}
+
+.lockup {
+  position: relative; z-index: 3; display: inline-flex; align-items: center; gap: 10px;
+  margin-bottom: clamp(16px, 2.2vw, 30px);
+  animation: fadeUp 700ms cubic-bezier(.16,.9,.3,1) both;
+}
+.lockupName { font-family: var(--fx-display); font-size: 20px; font-weight: 800; letter-spacing: -.02em; color: var(--fx-ink); }
+.lockupDiv { width: 1px; height: 17px; background: rgba(18,53,107,.2); }
+.lockupSub { font-size: 10px; font-weight: 600; letter-spacing: .15em; text-transform: uppercase; color: #7C93B4; }
+
+/* Hàng chính: chữ bên trái, điện thoại bên phải */
+.topRow {
+  position: relative; z-index: 4; flex: 1;
+  display: flex; align-items: center; gap: clamp(24px, 3.6vw, 52px);
+}
+.copyWrap {
+  position: relative; flex: 1; min-width: 0;
+  max-width: 46ch; min-height: clamp(300px, 27vw, 380px);
+  margin-bottom: clamp(56px, 8vw, 120px);   /* keo khoi chu len khoi truc giua */
+}
+.copy { position: absolute; inset: 0; display: grid; align-content: center; opacity: 0; }
+.eyebrow {
+  display: block; margin-bottom: 14px; font-size: 11.5px; font-weight: 700;
+  letter-spacing: .17em; text-transform: uppercase; color: #2559A8;
+}
+.headline {
+  margin: 0 0 17px; font-family: var(--fx-display);
+  font-size: clamp(28px, 3.1vw, 46px); font-weight: 800;
+  line-height: 1.14; letter-spacing: -.028em; color: var(--fx-ink); text-wrap: balance;
+}
+.note { margin: 0; max-width: 42ch; font-size: clamp(14px, 1.05vw, 17px); line-height: 1.62; color: #5E7593; }
+
+/* Khối bên phải — thay chỗ thẻ nổi + thành phố của bản gốc */
+.deck {
+  position: relative; flex: none; margin-left: auto;
+  width: 300px; height: 618px;
+  perspective: 1300px;                /* goc nhin 3D cho lop .tilt ben trong */
+  animation: fadeUp 760ms cubic-bezier(.16,.9,.3,1) both; animation-delay: 220ms;
+}
+
+/* Nghieng theo con tro.
+   .phone da co animation dong vao transform (phoneOut), ma mot phan tu chi co
+   MOT thuoc tinh transform — animation se de bep goc nghieng. Nen tach lam hai
+   lop: .tilt lo goc nhin, .phone lo animation. --mx/--my do JS dat tren .promo,
+   dung dung co che cua ban thiet ke goc. */
+.tilt {
+  position: absolute; inset: 0;
+  transform-style: preserve-3d;
+  transform:
+    rotateY(calc(var(--mx, 0) * 15deg))
+    rotateX(calc(var(--my, 0) * -10deg))
+    scale(var(--lift, 1));
+  transition: transform 460ms cubic-bezier(.2, .8, .3, 1);
+  will-change: transform;
+}
+.deck:hover .tilt { --lift: 1.03; }
+
+/* Vet sang phan chieu — thu ban cho nao nhan ra khoi mau dang nghieng that */
+.sheen {
+  position: absolute; inset: 0; z-index: 7; pointer-events: none; border-radius: 28px;
+  background: radial-gradient(
+    40% 32% at calc(50% + var(--mx, 0) * 52%) calc(36% + var(--my, 0) * 44%),
+    rgba(255, 255, 255, .58), rgba(255, 255, 255, 0) 64%);
+  opacity: 0; transition: opacity 420ms ease;
+}
+.deck:hover .sheen { opacity: 1; }
+/* Một mốc 15s dùng chung cho mọi lớp — không timer JS nên không lệch pha */
+[data-anim] {
+  animation-duration: 15s; animation-timing-function: linear;
+  animation-iteration-count: infinite; animation-fill-mode: both;
+}
+
+/* ── Điện thoại ────────────────────────────────────────────── */
+.phone {
+  position: absolute; left: 11px; top: 26px;
+  width: 278px; height: 566px; border-radius: 34px;
+  background: #0D1726; padding: 7px;
+  box-shadow: 0 40px 70px -34px rgba(20,50,110,.5);
+}
+.screen { position: relative; width: 100%; height: 100%; border-radius: 28px; overflow: hidden; background: #F4F7FB; }
+.island { position: absolute; z-index: 6; top: 7px; left: 50%; margin-left: -30px; width: 60px; height: 15px; border-radius: 9px; background: #0D1726; }
+.scene { position: absolute; inset: 0; opacity: 0; }
+.scn { display: flex; flex-direction: column; height: 100%; font-size: 13px; line-height: 1.45; color: #12294F; font-family: var(--fx-display); }
+
+.appbar { display: flex; align-items: center; gap: 9px; padding: 26px 14px 11px; background: #fff; border-bottom: 1px solid #E3E9F2; flex: none; }
+.mark { width: 27px; height: 27px; border-radius: 9px; flex: none; background: linear-gradient(160deg, #2C6BEE, #1D4ED8); display: grid; place-items: center; }
+.appbar b { font-size: 14px; font-weight: 700; letter-spacing: -.01em; }
+.body { flex: 1; overflow: hidden; padding: 11px 12px; display: flex; flex-direction: column; gap: 9px; }
+
+.tabbar { flex: none; position: relative; display: grid; grid-template-columns: repeat(5, 1fr); align-items: center; padding: 7px 4px 11px; background: #fff; border-top: 1px solid #E3E9F2; }
+.tab { display: grid; justify-items: center; gap: 3px; font-size: 8.5px; color: #6B7C93; font-weight: 500; }
+.tab.on { color: var(--fx-app); font-weight: 700; }
+.tab svg { display: block; }                       /* bo khoang dem dong cua inline */
+.dotwrap { position: relative; display: grid; place-items: center; }
+.nbadge { position: absolute; top: -5px; right: -8px; min-width: 13px; height: 13px; padding: 0 3px; border-radius: 7px; background: #E8452F; color: #fff; font-size: 8px; font-weight: 700; display: grid; place-items: center; border: 1.5px solid #fff; }
+.fab { position: absolute; left: 50%; top: -14px; margin-left: -20px; width: 40px; height: 40px; border-radius: 50%; background: var(--fx-app); display: grid; place-items: center; box-shadow: 0 8px 18px -6px rgba(44,107,238,.7); border: 3px solid #fff; }
+
+.pcard { background: #fff; border: 1px solid #E3E9F2; border-radius: 13px; padding: 11px 12px; }
+.ph1 { font-size: 17px; font-weight: 800; letter-spacing: -.028em; margin: 0; }
+.psub { font-size: 11.5px; color: #6B7C93; margin: 2px 0 0; }
+.plbl { font-size: 9px; font-weight: 700; letter-spacing: .1em; color: #6B7C93; text-transform: uppercase; }
+
+.alert { display: grid; grid-template-columns: 34px 1fr; gap: 10px; background: #FFF1E4; border: 1px solid #F3D2B4; border-left: 4px solid #D9641A; border-radius: 13px; padding: 11px; }
+.alert .ic { width: 34px; height: 34px; border-radius: 50%; background: #D9641A; display: grid; place-items: center; }
+.alert b { font-size: 12px; font-weight: 700; white-space: nowrap; }
+.alert p { margin: 3px 0 8px; font-size: 11px; color: #8A5324; }
+.pillUrgent { flex: none; white-space: nowrap; font-size: 7.5px; font-weight: 800; letter-spacing: .05em; color: #D9641A; background: #FFE6CD; border-radius: 20px; padding: 3px 6px; }
+.btnCall { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 700; color: #D9641A; background: #FFE6CD; border: 1px solid #F3D2B4; border-radius: 9px; padding: 6px 11px; }
+.psteps { display: grid; gap: 10px; margin-top: 9px; }
+.pstep { display: grid; grid-template-columns: 21px 16px 1fr; gap: 8px; align-items: start; }
+.pnum { width: 21px; height: 21px; border-radius: 50%; background: var(--fx-app); color: #fff; font-size: 10.5px; font-weight: 700; display: grid; place-items: center; }
+.pstep b { font-size: 11.5px; font-weight: 700; }
+.pstep small { display: block; font-size: 10.5px; color: #6B7C93; }
+.pnote { display: grid; grid-template-columns: 18px 1fr; gap: 8px; background: #E8F0FE; border-radius: 11px; padding: 10px 11px; font-size: 10.5px; line-height: 1.5; }
+
+.agentBadge { display: inline-flex; align-items: center; gap: 6px; background: linear-gradient(160deg, #2C6BEE, #1D4ED8); color: #fff; border-radius: 20px; padding: 6px 13px; font-size: 11px; font-weight: 700; }
+.chips { display: flex; gap: 7px; justify-content: center; margin-top: 16px; }
+.chip { border-radius: 20px; padding: 7px 13px; font-size: 11px; font-weight: 600; background: #EEF2FA; color: #6B7C93; border: 1px solid #E3E9F2; }
+.ptrack { display: grid; margin-top: 20px; }
+.trow { display: grid; grid-template-columns: 24px 1fr; gap: 11px; align-items: center; min-height: 46px; position: relative; }
+.trow::before { content: ""; position: absolute; left: 11px; top: 32px; bottom: -14px; width: 2px; background: #E3E9F2; }
+.trow:last-child::before { display: none; }
+.tdot { width: 24px; height: 24px; border-radius: 50%; border: 2px solid #E3E9F2; background: #fff; display: grid; place-items: center; z-index: 1; }
+.trow b { font-size: 12.5px; font-weight: 600; color: #6B7C93; }
+
+.psearch {
+  display: flex; align-items: center; gap: 7px; background: #fff;
+  border: 1px solid #E3E9F2; border-radius: 11px; padding: 8px 10px;
+  font-size: 9px; color: #6B7C93;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.psearch svg { flex: none; }
+.filters { display: flex; gap: 6px; }
+.fpill { border-radius: 20px; padding: 5px 9px; font-size: 9px; font-weight: 600; white-space: nowrap; border: 1px solid #E3E9F2; background: #fff; }
+.fpill.on { background: var(--fx-app); border-color: var(--fx-app); color: #fff; }
+.countrow { display: flex; align-items: center; justify-content: space-between; font-size: 10.5px; color: #6B7C93; }
+.tick { border: 1px solid #E3E9F2; background: #fff; border-radius: 9px; padding: 10px 11px; display: grid; gap: 7px; }
+.tick .top { display: flex; align-items: start; justify-content: space-between; gap: 8px; }
+.tick b { font-size: 12.5px; font-weight: 700; }
+.tick p { margin: 0; font-size: 10.5px; color: #6B7C93; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tick .foot2 { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.time { font-size: 10.5px; font-weight: 700; color: #1F8F55; font-variant-numeric: tabular-nums; }
+.eta { background: #E8F0FE; color: #1F4FA8; border-radius: 8px; padding: 6px 9px; font-size: 9.5px; font-weight: 600; text-align: right; }
+.state { flex: none; border-radius: 20px; padding: 3px 7px; font-size: 8.5px; font-weight: 700; white-space: nowrap; }
+.state.ok { background: #E3F7EC; color: #0E9F6E; }
+.state.wait { background: #E7F0FF; color: #1D4ED8; }
+
+.hring { position: absolute; border: 2.5px solid var(--fx-app); border-radius: 50%; opacity: 0; pointer-events: none; z-index: 7; }
+.pillWrap { position: relative; display: inline-block; }
+.hring.pill { border-radius: 20px; inset: -6px; }
+.fabRing { left: 50%; top: -23px; margin-left: -29px; width: 58px; height: 58px; }
+.ripple { position: absolute; z-index: 5; border-radius: 50%; background: var(--fx-app); opacity: 0; pointer-events: none; left: 50%; top: -14px; margin-left: -20px; width: 40px; height: 40px; }
+.finger { position: absolute; z-index: 8; opacity: 0; pointer-events: none; left: 152px; top: 556px; }
+.flatScene { position: absolute; inset: 0; opacity: 0; }
+
+/* ── Chỉ báo cảnh ──────────────────────────────────────────── */
+.dots { position: relative; z-index: 3; display: flex; gap: 7px; margin-top: clamp(8px, 1.2vw, 16px); }
+.dot { position: relative; overflow: hidden; width: 24px; height: 3px; padding: 0; border: 0; border-radius: 2px; background: rgba(44,107,238,.18); cursor: pointer; transition: width 420ms cubic-bezier(.2,.8,.3,1); }
+.dot.on { width: 52px; }
+.dot i { position: absolute; left: 0; top: 0; height: 100%; width: 0; border-radius: 2px; background: var(--fx-app); }
+
+/* ── PANEL — form ──────────────────────────────────────────── */
+.panel { position: relative; display: flex; align-items: center; justify-content: center; padding: clamp(28px, 3vw, 56px); background: #fff; }
+.form { width: 100%; max-width: 416px; }
+.formBrand { display: flex; align-items: center; gap: 11px; margin-bottom: 22px; animation: fadeUp 620ms cubic-bezier(.16,.9,.3,1) both; }
+.formMark { width: 36px; height: 36px; display: grid; place-items: center; border-radius: 11px; color: #fff; background: linear-gradient(160deg, #2C6BEE, #1D4ED8); box-shadow: 0 10px 21px rgba(53,111,239,.24); }
+.formBrandText b { display: block; font-family: var(--fx-display); font-size: 17px; font-weight: 800; letter-spacing: -.02em; color: var(--fx-text); }
+.formBrandText small { display: block; margin-top: 1px; font-size: 9.5px; font-weight: 700; letter-spacing: .16em; text-transform: uppercase; color: #8FA5C4; }
+.title { margin: 0 0 6px; font-family: var(--fx-display); font-size: 27px; font-weight: 700; letter-spacing: -.02em; color: var(--fx-text); animation: fadeUp 620ms cubic-bezier(.16,.9,.3,1) both; animation-delay: 60ms; }
+.subtitle { margin: 0 0 26px; font-size: 14px; line-height: 1.55; color: var(--fx-muted); animation: fadeUp 620ms cubic-bezier(.16,.9,.3,1) both; animation-delay: 110ms; }
+.demo { margin-bottom: 22px; animation: fadeUp 620ms cubic-bezier(.16,.9,.3,1) both; animation-delay: 160ms; }
+.demoLabel { display: block; margin-bottom: 11px; font-size: 10.5px; font-weight: 800; letter-spacing: .15em; text-transform: uppercase; color: #7C93B4; }
+.demoGrid { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 9px; align-items: start; }
+.demoCol { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.demoRole { font-size: 11.5px; font-weight: 700; color: #3A4E6B; }
+.acct { display: block; width: 100%; min-width: 0; padding: 9px 10px; text-align: left; border: 1px solid #E3EBF7; border-radius: 11px; background: #fff; font-family: inherit; cursor: pointer; transition: border-color 170ms ease, box-shadow 170ms ease, transform 170ms ease, background 170ms ease; }
+.acct:hover { border-color: #B9CFF0; box-shadow: 0 6px 16px rgba(23,61,130,.09); transform: translateY(-1px); }
+.acct.on { border-color: var(--fx-blue-600); background: #F3F8FF; box-shadow: 0 0 0 3px rgba(37,99,235,.11); }
+.acctName { display: block; font-size: 12px; font-weight: 700; letter-spacing: -.01em; color: var(--fx-text); }
+.acctMail { display: block; margin-top: 2px; font-size: 10px; color: #93A6C0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.field { margin-bottom: 16px; animation: fadeUp 620ms cubic-bezier(.16,.9,.3,1) both; animation-delay: var(--d, 240ms); }
+.label { display: block; margin-bottom: 7px; font-size: 12.5px; font-weight: 600; color: #3A4E6B; }
+.inputWrap { position: relative; }
+.input { width: 100%; height: 46px; padding: 0 46px 0 14px; border-radius: 12px; border: 1px solid var(--fx-line); background: #F7FAFF; font-family: inherit; font-size: 14px; color: var(--fx-text); outline: none; transition: border-color 160ms ease, box-shadow 160ms ease, background 160ms ease; }
+.input::placeholder { color: #A8B8CE; }
+.input:focus { border-color: var(--fx-blue-600); background: #fff; box-shadow: 0 0 0 4px rgba(37,99,235,.13); }
+.fieldIcon { position: absolute; top: 50%; right: 13px; transform: translateY(-50%); display: grid; place-items: center; color: #A2B4CC; pointer-events: none; }
+.toggle { position: absolute; top: 50%; right: 6px; transform: translateY(-50%); width: 34px; height: 34px; display: grid; place-items: center; border: 0; border-radius: 9px; background: transparent; color: #7E92AE; cursor: pointer; transition: color 160ms ease, background 160ms ease; }
+.toggle:hover { color: var(--fx-blue-600); background: #EDF3FF; }
+.submit { position: relative; overflow: hidden; width: 100%; height: 48px; margin-top: 6px; border: 0; border-radius: 12px; background: linear-gradient(180deg, #2C6BEE 0%, #1D4ED8 100%); font-family: inherit; font-size: 14.5px; font-weight: 700; color: #fff; cursor: pointer; box-shadow: 0 10px 22px rgba(29,78,216,.26); transition: transform 180ms ease, box-shadow 180ms ease; animation: fadeUp 620ms cubic-bezier(.16,.9,.3,1) both; animation-delay: 380ms; }
+.submitInner { display: inline-flex; align-items: center; justify-content: center; gap: 9px; }
+.submit::after { content: ''; position: absolute; top: 0; left: -60%; width: 40%; height: 100%; background: linear-gradient(100deg, rgba(255,255,255,0) 0%, rgba(255,255,255,.32) 50%, rgba(255,255,255,0) 100%); transform: skewX(-18deg); transition: left 620ms cubic-bezier(.3,.8,.4,1); }
+.submit:hover { transform: translateY(-1px); box-shadow: 0 14px 30px rgba(29,78,216,.32); }
+.submit:hover::after { left: 120%; }
+.foot { margin: 22px 0 0; padding-top: 18px; border-top: 1px solid #EEF3FB; font-size: 12.5px; line-height: 1.6; color: #8497B1; animation: fadeUp 620ms cubic-bezier(.16,.9,.3,1) both; animation-delay: 430ms; }
+.acct:focus-visible, .submit:focus-visible, .toggle:focus-visible, .dot:focus-visible, .input:focus-visible { outline: 2px solid var(--fx-blue-600); outline-offset: 3px; }
+
+@keyframes fadeUp { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
+
+/* ── RESPONSIVE ────────────────────────────────────────────── */
+@media (max-width: 1200px) { .root { grid-template-columns: 1fr 360px; } }
+@media (max-width: 1040px) { .deck { display: none; } .copyWrap { max-width: none; } }
+@media (max-width: 940px) {
+  .root { grid-template-columns: 1fr; min-height: 0; }
+  .promo { padding: 26px 20px 22px; }
+  .topRow { flex-direction: column; align-items: stretch; }
+  .copyWrap { min-height: 156px; margin-bottom: 0; }
+  .note { display: none; }
+  .panel { padding: 36px 24px 48px; }
+  .form { max-width: 440px; }
+}
+@media (max-width: 420px) { .demoGrid { grid-template-columns: 1fr; gap: 12px; } }
+@media (prefers-reduced-motion: reduce) {
+  /* Ba lan sua, ba muc do — ghi lai de khong lui nua:
+       1. Ban dau: animation-play-state: paused  -> dong bang o khung dau,
+          moi thu opacity:0 => "khong thay chu".
+       2. Sau do: animation: none               -> thay chu, nhung trang
+          dung im hoan toan => "khong thay chuyen dong".
+       3. Bay gio: van chay vong 15s, chi BO PHAN DI CHUYEN.
+     Nguoi bat "giam chuyen dong" kho chiu voi thu truot/nay/xoay, chu khong
+     phai voi mo dan. Nen giu cross-fade, bo han ngon tay, ripple, vong
+     highlight va tho di bo. */
+  .root *, .root *::before, .root *::after { transition-duration: 1ms !important; }
+
+  /* Khai lai chinh cac keyframe do bang ban CHI CO opacity */
+  @keyframes s1 { 0%, 25.33% { opacity: 1; } 26.67%, 100% { opacity: 0; } }
+  @keyframes s2 { 0%, 25.33% { opacity: 0; } 26.67%, 52% { opacity: 1; } 53.33%, 100% { opacity: 0; } }
+  @keyframes s3 { 0%, 52% { opacity: 0; } 53.33%, 78.67% { opacity: 1; } 80%, 100% { opacity: 0; } }
+  @keyframes s4 { 0%, 79.33% { opacity: 0; } 81.33%, 100% { opacity: 1; } }
+  @keyframes phoneOut { 0%, 78.67% { opacity: 1; } 81.33%, 100% { opacity: 0; } }
+  @keyframes copy1 { 0%, 1.33% { opacity: 0; } 4%, 23.33% { opacity: 1; } 25.33%, 100% { opacity: 0; } }
+  @keyframes copy2 { 0%, 27.33% { opacity: 0; } 30%, 50% { opacity: 1; } 52%, 100% { opacity: 0; } }
+  @keyframes copy3 { 0%, 54% { opacity: 0; } 56.67%, 76.67% { opacity: 1; } 78.67%, 100% { opacity: 0; } }
+  @keyframes copy4 { 0%, 81.33% { opacity: 0; } 84%, 98.67% { opacity: 1; } 100% { opacity: 0; } }
+  @keyframes listScroll { 0%, 100% { transform: none; } }
+
+  /* Nhung thu nhay/truot thi bo han */
+  .finger, .ripple, .hring { animation: none !important; opacity: 0 !important; }
+  .flatScene [data-anim] { animation: none !important; }
+  .tilt { transform: none !important; }
+  .sheen { display: none; }
+  .lockup, .deck, .formBrand, .title, .subtitle, .demo, .field, .submit, .foot { animation: none !important; opacity: 1 !important; }
+}
+}
+</style>
+
+</head>
+<body>
+<div class="root">
+  <!-- ══ TRÁI ══════════════════════════════════════════════ -->
+  <section class="promo">
+    <div class="lockup">
+      <span class="lockupName">FixIt</span>
+      <span class="lockupDiv"></span>
+      <span class="lockupSub">One Access</span>
+    </div>
+
+    <div class="topRow">
+      <div class="copyWrap">
+        <div class="copy" data-anim style="animation-name: copy1">
+          <span class="eyebrow">Tạo phản ánh</span>
+          <h1 class="headline">Báo sự cố chỉ trong vài chạm.</h1>
+          <p class="note">Chọn vị trí, mô tả vấn đề và thêm hình ảnh trực tiếp trên app. Thao tác đơn giản, thông tin đầy đủ, phản ánh được gửi đi ngay lập tức.</p>
+        </div>
+        <div class="copy" data-anim style="animation-name: copy2">
+          <span class="eyebrow">FixIt Agent</span>
+          <h1 class="headline">Phản ánh được xử lý ngay khi gửi.</h1>
+          <p class="note">FixIt Agent tự động tiếp nhận, phân tích và chuyển thông tin đến Ban quản lý trong tích tắc. Mọi phản ánh đều được xử lý nhanh và chính xác.</p>
+        </div>
+        <div class="copy" data-anim style="animation-name: copy3">
+          <span class="eyebrow">Theo dõi ticket</span>
+          <h1 class="headline">Theo dõi tiến độ ngay trên app.</h1>
+          <p class="note">Mọi cập nhật đều được hiển thị rõ ràng theo từng trạng thái. Từ lúc tiếp nhận đến khi xử lý hoàn tất, cư dân luôn nắm được tiến độ sự cố.</p>
+        </div>
+        <div class="copy" data-anim style="animation-name: copy4">
+          <span class="eyebrow">Xử lý kịp thời</span>
+          <h1 class="headline">Kỹ thuật viên tiếp nhận và xử lý nhanh chóng.</h1>
+          <p class="note">Khi ticket được giao, kỹ thuật viên nhận đầy đủ thông tin sự cố và bắt đầu xử lý ngay. Cư dân có thể theo dõi quá trình xử lý trực tiếp trên app.</p>
+        </div>
+      </div>
+
+      <div class="deck">
+       <div class="tilt">
+        <div class="phone" data-anim style="animation-name: phoneOut">
+          <div class="screen">
+            <div class="island"></div>
+            <span class="sheen"></span>
+
+            <div class="scene sceneFirst" data-anim style="animation-name: s1">
+              <div class="scn">
+                <div class="appbar">
+                  <span class="mark"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg></span>
+                  <b>Trang chủ</b>
+                </div>
+                <div class="body">
+                  <div><h2 class="ph1">Xin chào, Cư dân A-1203&nbsp;👋</h2><p class="psub">Căn hộ 1203</p></div>
+                  <div class="alert">
+                    <span class="ic"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.36 1.9.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.9.34 1.85.57 2.81.7A2 2 0 0 1 22 16.92z"/></svg></span>
+                    <div>
+                      <div style="display:flex;align-items:center;justify-content:space-between;gap:8px"><b>Sự cố nguy hiểm</b><span class="pillUrgent">KHẨN CẤP</span></div>
+                      <p>Cháy, khói, rò điện hoặc rò gas: gọi Ban quản lý ngay.</p>
+                      <span class="btnCall"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.36 1.9.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.9.34 1.85.57 2.81.7A2 2 0 0 1 22 16.92z"/></svg>Gọi Ban quản lý</span>
+                    </div>
+                  </div>
+                  <div class="pcard">
+                    <b style="font-size:12.5px;font-weight:700">Gửi phản ánh trong vài bước</b>
+                    <div class="psteps">
+                      <div class="pstep"><span class="pnum">1</span><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#2C6BEE" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="margin-top:3px"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg><span><b>Chọn vị trí</b><small>Cho biết nơi xảy ra sự cố.</small></span></div>
+                      <div class="pstep"><span class="pnum">2</span><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#2C6BEE" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="margin-top:3px"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg><span><b>Mô tả ngắn gọn</b><small>Chia sẻ điều bạn cần hỗ trợ.</small></span></div>
+                      <div class="pstep"><span class="pnum">3</span><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#2C6BEE" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="margin-top:3px"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg><span><b>Thêm ảnh nếu có</b><small>Giúp Ban quản lý xử lý nhanh hơn.</small></span></div>
+                    </div>
+                  </div>
+                  <div class="pnote"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#2C6BEE" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="margin-top:1px"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg><span><b style="font-weight:700">Thông tin của bạn được giữ riêng.</b> Chỉ người xử lý được xem phản ánh của căn hộ bạn.</span></div>
+                </div>
+                <div class="tabbar">
+                  <span class="tab on"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M9 22V12h6v10"/></svg>Trang chủ</span>
+                  <span class="tab"><span class="dotwrap"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg><i class="nbadge">2</i></span>Thông báo</span>
+                  <span></span>
+                  <span class="tab"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1"/></svg>Phản ánh</span>
+                  <span class="tab"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>Tài khoản</span>
+                  <span class="fab"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></span>
+                  <span class="ripple" data-anim style="animation-name: ripple"></span>
+                  <span class="hring fabRing" data-anim style="animation-name: ring1"></span>
+                </div>
+              </div>
+            </div>
+
+            <div class="scene" data-anim style="animation-name: s2">
+              <div class="scn" style="background:#F4F7FB">
+                <div class="appbar"><span class="mark"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg></span><b>Phản ánh mới</b></div>
+                <div class="body" style="padding:18px 16px">
+                  <div class="pcard" style="padding:18px 14px">
+                    <div style="display:flex;justify-content:center;padding-top:4px"><span class="agentBadge"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v3m0 12v3M3 12h3m12 0h3M5.6 5.6l2.2 2.2m8.4 8.4 2.2 2.2m0-12.8-2.2 2.2m-8.4 8.4-2.2 2.2"/></svg>FixIt Agent</span></div>
+                    <div class="chips">
+                      <span class="chip" data-anim style="animation-name: chip1">Vị trí</span>
+                      <span class="chip" data-anim style="animation-name: chip2">Mô tả</span>
+                      <span class="chip" data-anim style="animation-name: chip3">Ảnh</span>
+                    </div>
+                    <div class="ptrack">
+                      <div class="trow"><span class="tdot" data-anim style="animation-name: dot1"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round" data-anim style="animation-name: chk1"><path d="M20 6 9 17l-5-5"/></svg></span><b data-anim style="animation-name: lab1">Đang đọc</b></div>
+                      <div class="trow"><span class="tdot" data-anim style="animation-name: dot2"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round" data-anim style="animation-name: chk2"><path d="M20 6 9 17l-5-5"/></svg></span><b data-anim style="animation-name: lab2">Đã phân loại</b></div>
+                      <div class="trow"><span class="tdot" data-anim style="animation-name: dot3"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round" data-anim style="animation-name: chk3"><path d="M20 6 9 17l-5-5"/></svg></span><b data-anim style="animation-name: lab3">Đã gửi Ban quản lý</b></div>
+                    </div>
+                  </div>
+                </div>
+                <div class="tabbar">
+                  <span class="tab"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>Trang chủ</span>
+                  <span class="tab"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/></svg>Thông báo</span>
+                  <span></span>
+                  <span class="tab"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1"/></svg>Phản ánh</span>
+                  <span class="tab"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="7" r="4"/><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/></svg>Tài khoản</span>
+                  <span class="fab"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></span>
+                </div>
+              </div>
+            </div>
+
+            <div class="scene" data-anim style="animation-name: s3">
+              <div class="scn">
+                <div class="appbar" style="padding-left:16px"><b style="font-size:16px">Phản ánh</b></div>
+                <div class="body" data-anim style="animation-name: listScroll">
+                  <div class="psearch"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>Tìm theo mã hoặc nội dung phản ánh</div>
+                  <div class="filters"><span class="fpill on">Tất cả</span><span class="fpill">Đang theo dõi</span><span class="fpill">Đã kết thúc</span></div>
+                  <div class="countrow"><span>12 phản ánh</span><span class="fpill" style="padding:5px 10px;font-size:10px">Bộ lọc</span></div>
+                  <div class="plbl">Hôm nay</div>
+                  <div class="tick">
+                    <div class="top"><b>Ồn ào</b><span class="pillWrap"><span class="state ok">Đã có kỹ thuật viên</span><span class="hring pill" data-anim style="animation-name: ring3"></span></span></div>
+                    <p>Hành lang người ta tổ chức ăn uống</p>
+                    <div class="foot2"><span class="time">11:24</span><span class="eta">KTV dự kiến bắt đầu xử lý lúc<br>12h24 · 28 Th8</span></div>
+                  </div>
+                  <div class="tick">
+                    <div class="top"><b>An ninh / An toàn</b><span class="state wait">Ban quản lý đang xem xét</span></div>
+                    <p>Cửa thoát hiểm tầng 7 bị chèn kê</p>
+                    <div class="foot2"><span class="time" style="color:#2C6BEE">11:15</span><span class="eta">Đang chờ Ban quản lý xem xét</span></div>
+                  </div>
+                  <div class="tick">
+                    <div class="top"><b>Nước</b><span class="state ok">Đã có kỹ thuật viên</span></div>
+                    <p>Vòi chữa cháy bị thoát nước ra ngoài</p>
+                    <div class="foot2"><span class="time">11:14</span><span class="eta">KTV dự kiến bắt đầu xử lý lúc<br>11h14 · 28 Th8</span></div>
+                  </div>
+                </div>
+                <div class="tabbar">
+                  <span class="tab"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>Trang chủ</span>
+                  <span class="tab"><span class="dotwrap"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/></svg><i class="nbadge">2</i></span>Thông báo</span>
+                  <span></span>
+                  <span class="tab on"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1"/></svg>Phản ánh</span>
+                  <span class="tab"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="7" r="4"/><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/></svg>Tài khoản</span>
+                  <span class="fab"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <span class="finger" data-anim style="animation-name: finger">
+          <svg width="46" height="60" viewBox="0 0 46 60" fill="none"><path d="M14 30V9a5 5 0 0 1 10 0v16M24 25v-4a4.5 4.5 0 0 1 9 0v12M14 30c-4-3-9-2-9 3 0 8 4 16 9 20 3 2.6 6 3 10 3h5a10 10 0 0 0 10-10V27a4.5 4.5 0 0 0-9 0" fill="#F6C9A6" stroke="#D9A87E" stroke-width="1.6" stroke-linejoin="round"/></svg>
+        </span>
+
+        <div class="flatScene" data-anim style="animation-name: s4">
+          <svg viewBox="0 0 300 618" width="300" height="618" aria-label="Kỹ thuật viên đang tới cửa căn hộ">
+            <rect x="118" y="150" width="182" height="352" rx="10" fill="#E7EDF6"/>
+            <rect x="0" y="502" width="300" height="116" rx="10" fill="#DCE4F0"/>
+            <path d="M0 502h300" stroke="#CBD6E6" stroke-width="3"/>
+            <rect x="160" y="196" width="126" height="306" rx="6" fill="#C9D6E8"/>
+            <rect x="169" y="205" width="108" height="288" rx="4" fill="#B4C6DE"/>
+            <rect x="194" y="226" width="58" height="18" rx="4" fill="#E7EDF6"/>
+            <circle cx="180" cy="356" r="6" fill="#8FA6C4"/>
+            <g data-anim style="animation-name: walk">
+              <g data-anim style="animation-name: legA; transform-origin: 126px 448px"><rect x="120" y="442" width="12" height="60" rx="6" fill="#33465F"/></g>
+              <g data-anim style="animation-name: legB; transform-origin: 141px 448px"><rect x="135" y="442" width="12" height="60" rx="6" fill="#27384D"/></g>
+              <rect x="87" y="414" width="42" height="32" rx="5" fill="#E4A93C" data-anim style="animation-name: toolbox"/>
+              <rect x="87" y="414" width="42" height="9" rx="4" fill="#C98F26" data-anim style="animation-name: toolbox"/>
+              <rect x="111" y="364" width="12" height="56" rx="6" fill="#1D4ED8" data-anim style="animation-name: armBack; transform-origin: 117px 369px"/>
+              <rect x="113" y="344" width="41" height="106" rx="14" fill="#2C6BEE"/>
+              <rect x="113" y="344" width="41" height="20" rx="10" fill="#1D4ED8"/>
+              <circle cx="133" cy="320" r="20" fill="#F6C9A6"/>
+              <path d="M113 317a20 20 0 0 1 40 0z" fill="#2E3D52"/>
+              <g data-anim style="animation-name: armKnock; transform-origin: 155px 369px">
+                <rect x="149" y="363" width="12" height="56" rx="6" fill="#3F7BF5"/>
+                <circle cx="155" cy="422" r="8" fill="#F6C9A6"/>
+              </g>
+            </g>
+          </svg>
+        </div>
+       </div>
+      </div>
+    </div>
+
+    <div class="dots" id="dots">
+      <button class="dot" type="button" data-at="0" aria-label="Cảnh 1"><i></i></button>
+      <button class="dot" type="button" data-at="4" aria-label="Cảnh 2"><i></i></button>
+      <button class="dot" type="button" data-at="8" aria-label="Cảnh 3"><i></i></button>
+      <button class="dot" type="button" data-at="12" aria-label="Cảnh 4"><i></i></button>
+    </div>
+  </section>
+
+  <!-- ══ PHẢI — form ═══════════════════════════════════════ -->
+  <section class="panel">
+    <form class="form" onsubmit="return false">
+      <div class="formBrand">
+        <span class="formMark"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg></span>
+        <span class="formBrandText"><b>FixIt</b><small>One Access</small></span>
+      </div>
+
+      <h1 class="title">Đăng nhập</h1>
+      <p class="subtitle">Nhập email và mật khẩu được Ban quản lý cấp.</p>
+
+      <div class="demo">
+        <span class="demoLabel">Tài khoản mẫu</span>
+        <div class="demoGrid" id="demoGrid">
+          <div class="demoCol">
+            <span class="demoRole">Cư dân</span>
+            <button class="acct" type="button" data-mail="resident.test@homecare.local"><span class="acctName">Cư dân</span><span class="acctMail">resident.test@homecare.local</span></button>
+            <button class="acct" type="button" data-mail="minhanh.cudan@homecare.local"><span class="acctName">Minh Anh</span><span class="acctMail">minhanh.cudan@homecare.local</span></button>
+            <button class="acct" type="button" data-mail="quocbao.cudan@homecare.local"><span class="acctName">Quốc Bảo</span><span class="acctMail">quocbao.cudan@homecare.local</span></button>
+          </div>
+          <div class="demoCol">
+            <span class="demoRole">BQL</span>
+            <button class="acct" type="button" data-mail="lan@bql.homecare.local"><span class="acctName">BQL</span><span class="acctMail">lan@bql.homecare.local</span></button>
+          </div>
+          <div class="demoCol">
+            <span class="demoRole">KTV</span>
+            <button class="acct" type="button" data-mail="minhanh@homecare.local"><span class="acctName">KTV</span><span class="acctMail">minhanh@homecare.local</span></button>
+            <button class="acct" type="button" data-mail="tuandien@homecare.local"><span class="acctName">Tuấn Điện</span><span class="acctMail">tuandien@homecare.local</span></button>
+            <button class="acct" type="button" data-mail="hoanuoc@homecare.local"><span class="acctName">Hoa Nước</span><span class="acctMail">hoanuoc@homecare.local</span></button>
+          </div>
+        </div>
+      </div>
+
+      <div class="field" style="--d:240ms">
+        <label class="label" for="email">Email</label>
+        <div class="inputWrap">
+          <input class="input" id="email" type="email" placeholder="ten@fixit.vn" autocomplete="email">
+          <span class="fieldIcon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-10 6L2 7"/></svg></span>
+        </div>
+      </div>
+
+      <div class="field" style="--d:300ms">
+        <label class="label" for="pw">Mật khẩu</label>
+        <div class="inputWrap">
+          <input class="input" id="pw" type="password" placeholder="••••••••" autocomplete="current-password">
+          <button class="toggle" type="button" id="toggle" aria-label="Hiện mật khẩu"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/></svg></button>
+        </div>
+      </div>
+
+      <button class="submit" type="button">
+        <span class="submitInner">Đăng nhập
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+        </span>
+      </button>
+
+      <p class="foot">Hệ thống sẽ tự động nhận diện vai trò của bạn.</p>
+    </form>
+  </section>
+</div>
+
+<script>
+/* Mốc thời gian nằm trong CSS; JS chỉ tua cảnh và vẽ thanh chỉ báo. */
+const DUR = 15000, MARKS = [0, 4, 8, 12], SPAN = [4, 4, 4, 3];
+const dots = [...document.querySelectorAll(".dot")];
+const fills = dots.map(d => d.querySelector("i"));
+let started = performance.now();
+
+function seek(sec) {
+  started = performance.now() - sec * 1000;
+  document.querySelectorAll("[data-anim]").forEach(el => { el.style.animationDelay = `-${sec}s`; });
+}
+document.getElementById("dots").addEventListener("click", e => {
+  const b = e.target.closest(".dot");
+  if (b) seek(Number(b.dataset.at));
+});
+
+/* Nghieng theo con tro — dat --mx/--my tren .promo, dung co che cua ban goc.
+   Gia tri nam trong [-0.5, 0.5]: 0 la giua khung. Gom vao requestAnimationFrame
+   de mot lan di chuot khong keo theo hang chuc lan tinh lai layout. */
+const promo = document.querySelector(".promo");
+const deck = document.querySelector(".deck");
+let raf = 0;
+const still = !matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+if (still) {
+  promo.addEventListener("pointermove", e => {
+    cancelAnimationFrame(raf);
+    raf = requestAnimationFrame(() => {
+      const r = deck.getBoundingClientRect();
+      // Do theo TAM CUA DIEN THOAI, khong phai tam cua cot promo — nhu vay
+      // dua chuot toi dau may cung nghieng ve dung phia do.
+      // Chuan hoa theo chinh kich thuoc DIEN THOAI: cham toi mep may la dat
+      // ±0.5, tuc goc nghieng toi da. Chuan hoa theo be rong ca cot promo thi
+      // ca hanh trinh ngang qua may chi doi duoc ~0.15 — nghieng gan nhu khong
+      // thay gi.
+      const mx = (e.clientX - (r.left + r.width / 2)) / r.width;
+      const my = (e.clientY - (r.top + r.height / 2)) / r.height;
+      promo.style.setProperty("--mx", Math.max(-0.5, Math.min(0.5, mx)).toFixed(3));
+      promo.style.setProperty("--my", Math.max(-0.5, Math.min(0.5, my)).toFixed(3));
+    });
+  });
+  promo.addEventListener("pointerleave", () => {
+    cancelAnimationFrame(raf);
+    promo.style.setProperty("--mx", "0");
+    promo.style.setProperty("--my", "0");
+  });
+}
+
+const grid = document.getElementById("demoGrid");
+grid.addEventListener("click", e => {
+  const b = e.target.closest(".acct");
+  if (!b) return;
+  grid.querySelectorAll(".acct").forEach(x => x.classList.toggle("on", x === b));
+  document.getElementById("email").value = b.dataset.mail;
+});
+
+const pw = document.getElementById("pw");
+document.getElementById("toggle").addEventListener("click", e => {
+  const shown = pw.type === "text";
+  pw.type = shown ? "password" : "text";
+  e.currentTarget.setAttribute("aria-label", shown ? "Hiện mật khẩu" : "Ẩn mật khẩu");
+});
+
+function tick(now) {
+  const t = ((now - started) % DUR) / 1000;
+  const i = t < 4 ? 0 : t < 8 ? 1 : t < 12 ? 2 : 3;
+  const local = (t - MARKS[i]) / SPAN[i];
+  dots.forEach((d, k) => d.classList.toggle("on", k === i));
+  fills.forEach((f, k) => { f.style.width = k < i ? "100%" : k === i ? (local * 100) + "%" : "0%"; });
+  requestAnimationFrame(tick);
+}
+requestAnimationFrame(tick);
+</script>
+
+<style>
+/* ══ Mốc 15s — 0–4s cảnh 1 · 4–8s cảnh 2 · 8–12s cảnh 3 · 12–15s cảnh 4 ══ */
+@keyframes s1 { 0%, 25.33% { opacity: 1; transform: translateX(0); } 26.67%, 100% { opacity: 0; transform: translateX(-30px); } }
+@keyframes s2 { 0%, 25.33% { opacity: 0; transform: translateX(30px); } 26.67%, 52% { opacity: 1; transform: translateX(0); } 53.33%, 100% { opacity: 0; transform: translateX(-30px); } }
+@keyframes s3 { 0%, 52% { opacity: 0; transform: translateX(30px); } 53.33%, 78.67% { opacity: 1; transform: translateX(0); } 80%, 100% { opacity: 0; } }
+@keyframes phoneOut { 0%, 78.67% { opacity: 1; transform: scale(1); } 81.33%, 100% { opacity: 0; transform: scale(.94); } }
+@keyframes s4 { 0%, 79.33% { opacity: 0; } 81.33%, 100% { opacity: 1; } }
+
+@keyframes ring1 { 0%, 3.33% { opacity: 0; transform: scale(1.55); } 6% { opacity: 1; transform: scale(1); } 8.67% { opacity: .45; transform: scale(1.14); } 11.33% { opacity: 1; transform: scale(1); } 20%, 100% { opacity: 0; } }
+@keyframes finger { 0%, 10% { opacity: 0; transform: translateY(70px); } 13.33% { opacity: 1; transform: translateY(0); } 15.33% { opacity: 1; transform: translateY(9px); } 17.33% { opacity: 1; transform: translateY(0); } 21.33%, 100% { opacity: 0; transform: translateY(70px); } }
+@keyframes ripple { 0%, 15.33% { opacity: 0; transform: scale(.4); } 16% { opacity: .5; transform: scale(.4); } 20% { opacity: 0; transform: scale(3.4); } 100% { opacity: 0; transform: scale(.4); } }
+
+@keyframes chip1 { 0%, 28% { opacity: .35; } 30%, 100% { opacity: 1; background: #E7F0FF; color: #1D4ED8; border-color: #C9DDFF; } }
+@keyframes chip2 { 0%, 30.67% { opacity: .35; } 32.67%, 100% { opacity: 1; background: #E7F0FF; color: #1D4ED8; border-color: #C9DDFF; } }
+@keyframes chip3 { 0%, 33.33% { opacity: .35; } 35.33%, 100% { opacity: 1; background: #E7F0FF; color: #1D4ED8; border-color: #C9DDFF; } }
+@keyframes dot1 { 0%, 37.33% { background: #fff; border-color: #E3E9F2; } 38.67%, 100% { background: #2C6BEE; border-color: #2C6BEE; } }
+@keyframes dot2 { 0%, 42.67% { background: #fff; border-color: #E3E9F2; } 44%, 100% { background: #2C6BEE; border-color: #2C6BEE; } }
+@keyframes dot3 { 0%, 48% { background: #fff; border-color: #E3E9F2; } 49.33%, 100% { background: #2C6BEE; border-color: #2C6BEE; } }
+@keyframes chk1 { 0%, 37.33% { opacity: 0; transform: scale(.4); } 39.33%, 100% { opacity: 1; transform: scale(1); } }
+@keyframes chk2 { 0%, 42.67% { opacity: 0; transform: scale(.4); } 44.67%, 100% { opacity: 1; transform: scale(1); } }
+@keyframes chk3 { 0%, 48% { opacity: 0; transform: scale(.4); } 50%, 100% { opacity: 1; transform: scale(1); } }
+@keyframes lab1 { 0%, 37.33% { color: #6B7C93; } 38.67%, 100% { color: #0B1F3F; font-weight: 700; } }
+@keyframes lab2 { 0%, 42.67% { color: #6B7C93; } 44%, 100% { color: #0B1F3F; font-weight: 700; } }
+@keyframes lab3 { 0%, 48% { color: #6B7C93; } 49.33%, 100% { color: #0B1F3F; font-weight: 700; } }
+
+@keyframes listScroll { 0%, 54.67% { transform: translateY(0); } 62.67%, 100% { transform: translateY(-52px); } }
+@keyframes ring3 { 0%, 63.33% { opacity: 0; transform: scale(1.5); } 66.67% { opacity: 1; transform: scale(1); } 70% { opacity: .5; transform: scale(1.08); } 72.67% { opacity: 1; transform: scale(1); } 78.67%, 100% { opacity: 0; } }
+
+@keyframes walk { 0%, 80% { transform: translateX(-230px); } 92%, 100% { transform: translateX(0); } }
+@keyframes legA { 0%, 80% { transform: rotate(0); } 82% { transform: rotate(22deg); } 84% { transform: rotate(-22deg); } 86% { transform: rotate(22deg); } 88% { transform: rotate(-22deg); } 90% { transform: rotate(14deg); } 92%, 100% { transform: rotate(0); } }
+@keyframes legB { 0%, 80% { transform: rotate(0); } 82% { transform: rotate(-22deg); } 84% { transform: rotate(22deg); } 86% { transform: rotate(-22deg); } 88% { transform: rotate(22deg); } 90% { transform: rotate(-14deg); } 92%, 100% { transform: rotate(0); } }
+@keyframes armBack { 0%, 80% { transform: rotate(0); } 82% { transform: rotate(-18deg); } 84% { transform: rotate(18deg); } 86% { transform: rotate(-18deg); } 88% { transform: rotate(18deg); } 92%, 100% { transform: rotate(0); } }
+@keyframes armKnock {
+  0%, 80% { transform: rotate(0); }
+  82% { transform: rotate(18deg); } 84% { transform: rotate(-18deg); }
+  86% { transform: rotate(18deg); } 88% { transform: rotate(-18deg); }
+  92% { transform: rotate(0); }
+  94.67% { transform: rotate(-104deg); }
+  96.67% { transform: rotate(-92deg); }
+  98%, 100% { transform: rotate(-104deg); }
+}
+@keyframes toolbox { 0%, 80% { transform: translateY(0); } 82% { transform: translateY(-3px); } 84% { transform: translateY(0); } 86% { transform: translateY(-3px); } 88% { transform: translateY(0); } 92%, 100% { transform: translateY(0); } }
+
+@keyframes copy1 { 0%, 1.33% { opacity: 0; transform: translateY(14px); } 4%, 23.33% { opacity: 1; transform: none; } 25.33%, 100% { opacity: 0; transform: none; } }
+@keyframes copy2 { 0%, 27.33% { opacity: 0; transform: translateY(14px); } 30%, 50% { opacity: 1; transform: none; } 52%, 100% { opacity: 0; transform: none; } }
+@keyframes copy3 { 0%, 54% { opacity: 0; transform: translateY(14px); } 56.67%, 76.67% { opacity: 1; transform: none; } 78.67%, 100% { opacity: 0; transform: none; } }
+@keyframes copy4 { 0%, 81.33% { opacity: 0; transform: translateY(14px); } 84%, 98.67% { opacity: 1; transform: none; } 100% { opacity: 0; transform: none; } }
+</style>
+
+</body>
+</html>

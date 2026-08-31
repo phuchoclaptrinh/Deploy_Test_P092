@@ -1,0 +1,40 @@
+{
+  "dataset_version": "classification-v4-draft-2026-08-29",
+  "status": "PENDING_HUMAN_REVIEW",
+  "total_cases": 42,
+  "image_cases": 29,
+  "text_only_cases": 13,
+  "fixtures_used": 29,
+  "question_kinds": {
+    "NONE": 38,
+    "CATEGORY_CONFIRMATION": 1,
+    "LOCATION_CONFIRMATION": 1,
+    "SEVERITY_CONFIRMATION": 2
+  },
+  "red_flag_cases": 9,
+  "final_category_coverage": {
+    "Thấm tường": 2,
+    "Điều hòa": 5,
+    "<null>": 2,
+    "Thang máy": 4,
+    "Khóa / cửa": 3,
+    "Mất điện": 3,
+    "Hư hỏng khu vực chung": 3,
+    "Nước": 6,
+    "Internet / truyền hình": 2,
+    "An ninh / An toàn": 9,
+    "Mùi / vệ sinh": 2,
+    "Ồn ào": 1
+  },
+  "cases_with_review_notes": [
+    "CLS4-003",
+    "CLS4-004",
+    "CLS4-005",
+    "CLS4-007",
+    "CLS4-013",
+    "CLS4-015",
+    "CLS4-018",
+    "CLS4-028",
+    "CLS4-029"
+  ]
+}

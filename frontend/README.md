@@ -89,9 +89,11 @@ npm.cmd run build
 
 ### Priority
 
-- `P3`: rất khẩn cấp, mục tiêu xử lý 5 phút.
-- `P2`: khẩn cấp, mục tiêu xử lý 3 giờ.
-- `P1`: thông thường, mục tiêu xử lý 72 giờ.
+- `P5`: khẩn cấp, BQL xử lý thủ công ngay, mốc 5 phút 24/7; không phân việc cho KTV.
+- `P4`: ưu tiên trong ca, mục tiêu bắt đầu trong 3 giờ làm việc.
+- `P3`: cần sớm, mục tiêu bắt đầu trong 1 ngày làm việc.
+- `P2`: theo lịch, mục tiêu bắt đầu trong 2 ngày làm việc.
+- `P1`: thông thường, mục tiêu bắt đầu trong 3 ngày làm việc.
 - `P0`: ảnh và mô tả chưa thống nhất, cần BQL duyệt thủ công; đây không phải mức nguy hiểm.
 
 Cư dân chỉ thấy diễn giải thân thiện, không thấy mã priority, điểm hoặc từ `SLA`.

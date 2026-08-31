@@ -51,7 +51,9 @@ export const FAILURE_LABELS: Record<string, string> = {
   ...WARNING_LABELS,
   TICKET_NOT_APPROVED: "Phản ánh không còn ở trạng thái đã duyệt",
   TICKET_IS_DUPLICATE: "Phản ánh đã được gộp trùng",
-  P3_REVIEW_PENDING: "Đang chờ duyệt mức khẩn cấp P3",
+  EMERGENCY_REVIEW_PENDING: "Đang chờ duyệt mức khẩn cấp P5",
+  GROUPING_NOT_READY: "Chưa xong bước tra trùng và gộp cụm",
+  GROUPING_CASE_NOT_OPEN: "Cụm sự cố của phản ánh này đã đóng",
   ACTIVE_ASSIGNMENT_EXISTS: "Phản ánh đã có kỹ thuật viên khác",
 };
 

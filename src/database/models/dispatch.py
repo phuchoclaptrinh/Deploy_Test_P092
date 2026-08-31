@@ -90,9 +90,14 @@ class DispatchEvent(Base):
             "(is_open = true) = (status IN ('PENDING', 'CLAIMED'))",
             name="ck_dispatch_events_open_matches_status",
         ),
-        # §2: P3 must never enter the automatic workflow. Enforced here as well
-        # as at enqueue, because this is the table that would carry it.
-        CheckConstraint("priority <> 'P3'", name="ck_dispatch_events_no_p3"),
+        # P5 must never enter the automatic workflow. Enforced here as well as
+        # at enqueue, because this is the table that would carry it -- and a
+        # constraint is what makes "manual-only" a fact rather than an agreement
+        # between the ten call sites that check it.
+        #
+        # It named P3 until risk scoring v2 inverted the scale. The band moved;
+        # the rule did not.
+        CheckConstraint("priority <> 'P5'", name="ck_dispatch_events_no_emergency"),
         # A claimed row without an expiry can never be reclaimed after a crash.
         CheckConstraint(
             "status <> 'CLAIMED' OR claim_expires_at IS NOT NULL",
@@ -128,6 +133,10 @@ class DispatchEvent(Base):
     #: When the resident submitted. Tie-break 3 of the §6 ordering, and it must
     #: survive the ticket being touched later.
     ticket_submitted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    #: The ticket's risk score, frozen at enqueue. Named `score_total` because
+    #: that is what the dispatch ordering has always called its tie-break, and
+    #: the simulator's input contract uses the same name; the value it holds is
+    #: now `tickets.risk_score`.
     score_total: Mapped[float | None] = mapped_column(Float, nullable=True)
 
     enqueued_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())

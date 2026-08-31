@@ -289,3 +289,4 @@ Giữ lại:
 - Không hiển thị SLA hoàn thành.
 
 - Hành vi khi agent AT_RISK timeout hoặc lỗi kỹ thuật -> tự động gán người có rủi ro thấp nhất và báo với BQL.
+git switch -c feature/redesign-dashboard

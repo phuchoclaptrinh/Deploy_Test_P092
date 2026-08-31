@@ -5,18 +5,56 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from src.models.agent_schemas import P3Decision
+from src.models.agent_schemas import RiskCriteriaPayload, RiskEvidencePayload
 from src.models.api.tickets import TicketAttachmentResponse, TicketTimelineItem
 from src.models.enums import (
     AssignmentStatus,
     ClassificationStatus,
+    EmergencyDecision,
+    EmergencyReviewStatus,
     Priority,
     ResolutionSource,
-    Severity,
-    SeveritySource,
     TicketStatus,
     UserRole,
 )
+
+
+class RiskAssessmentResponse(BaseModel):
+    """One scoring revision, with everything a coordinator needs to argue with it.
+
+    Three scope numbers rather than one because they answer three questions:
+    what the Agent estimated, what a case actually counted, and which of the two
+    the formula used. An estimate that was overruled is the most interesting one
+    on the screen.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: UUID
+    revision_no: int
+    source: str
+    human_safety_score: int
+    property_spread_score: int
+    essential_function_score: int
+    deterioration_speed_score: int
+    ai_scope_score: int
+    backend_scope_score: int | None = None
+    effective_scope_score: int
+    confirmed_affected_unit_count: int | None = None
+    blocker_codes: list[str] = Field(default_factory=list)
+    evidence: dict[str, list[str] | dict[str, list[str]]] = Field(default_factory=dict)
+    unknown_facts: list[str] = Field(default_factory=list)
+    risk_score: float
+    score_priority: Priority
+    #: Set when a blocker, not the score, decided the outcome.
+    blocker_floor: Priority | None = None
+    final_priority: Priority
+    rubric_version: str
+    case_id_snapshot: UUID | None = None
+    case_density_snapshot: int | None = None
+    override_reason: str | None = None
+    reviewed_by: UUID | None = None
+    created_at: datetime
 
 
 class CoordinatorDuplicateCandidate(BaseModel):
@@ -53,9 +91,8 @@ class CoordinatorAnalysisSummary(BaseModel):
     final_category_id: UUID | None = None
     text_category_id: UUID | None = None
     image_category_id: UUID | None = None
-    severity: Severity | None
-    severity_source: SeveritySource | None
-    red_flag: bool = False
+    #: The assessment this run produced, if it got far enough to score.
+    risk_assessment: RiskAssessmentResponse | None = None
     #: Why the ticket was classified this way.
     ai_reason: str | None = None
     #: The verdict, and why duplicate status is or is not certain. A different
@@ -67,11 +104,11 @@ class CoordinatorAnalysisSummary(BaseModel):
     # --- The emergency gate. ---
     #: NOT_REQUIRED / PENDING / CONFIRMED / DOWNGRADED. PENDING is the only one
     #: that means the two review buttons should be live.
-    p3_review_status: str | None = None
-    p3_decision: str | None = None
-    p3_decision_reason: str | None = None
-    p3_reviewed_by: UUID | None = None
-    p3_reviewed_at: datetime | None = None
+    emergency_review_status: EmergencyReviewStatus | None = None
+    emergency_decision: EmergencyDecision | None = None
+    emergency_decision_reason: str | None = None
+    emergency_reviewed_by: UUID | None = None
+    emergency_reviewed_at: datetime | None = None
     #: What the pipeline scored, and what applies after a review. They differ
     #: only when a coordinator downgraded the ticket.
     ai_priority_before_review: Priority | None = None
@@ -86,8 +123,8 @@ class CoordinatorAgentQuestionSummary(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     id: UUID
-    #: CATEGORY_CONFIRMATION / SEVERITY_CONFIRMATION / LOCATION_CONFIRMATION /
-    #: RECENT_COMPLETION. Null on questions asked before the kinds existed.
+    #: One of `AgentQuestionKind`. Null on questions asked before the kinds
+    #: existed.
     question_kind: str | None = None
     question_type: str
     question_text: str
@@ -133,9 +170,14 @@ class CoordinatorTicketResponse(BaseModel):
     category_id: UUID | None
     category: str | None
     priority: Priority | None
-    severity: Severity | None
-    red_flag_detected: bool
-    score_total: float | None
+    risk_score: float | None
+    #: The revision `priority` and `risk_score` were cached from.
+    risk_assessment: RiskAssessmentResponse | None = None
+    #: Distinct apartments in this ticket's open incident case, or null when it
+    #: belongs to none. The number behind `backend_scope_score`, shown so a
+    #: coordinator can see what the scope criterion was counted from rather than
+    #: having to open the case.
+    case_unit_count: int | None = None
     sla_started_at: datetime | None
     sla_due_at: datetime | None
     created_at: datetime
@@ -246,11 +288,13 @@ class ManualReviewResolveRequest(BaseModel):
 
     category_id: UUID
     resolution_source: ResolutionSource
-    # §8.3: required only when the analysis left the ticket without a severity —
-    # a report that never got one cannot be scored otherwise. When the ticket
-    # already carries a severity, that stored value is kept and this field is
-    # ignored; changing an existing severity is the `classification` override.
-    severity: Severity | None = None
+    #: Required only when the analysis left the ticket without an assessment --
+    #: a report that was never scored cannot be prioritized otherwise. When the
+    #: ticket already carries one, the stored revision is kept and this field is
+    #: ignored; changing an existing score is the `classification` override.
+    criteria: RiskCriteriaPayload | None = None
+    blockers: list[str] = Field(default_factory=list)
+    evidence: RiskEvidencePayload | None = None
     reason: str = Field(min_length=3, max_length=1000)
 
 
@@ -308,33 +352,33 @@ class DuplicateDecisionRequest(BaseModel):
     reason: str = Field(default="", max_length=1000)
 
 
-class P3ReviewRequest(BaseModel):
+class EmergencyReviewRequest(BaseModel):
     """Management settling the emergency gate.
 
-    Naming note: P1/P2/P3 is `Priority` in this system and `severity` is
-    LOW/MEDIUM/HIGH, so the downgrade target is a `priority`.
+    `CONFIRM_P5` needs nothing else. It deliberately ends the automation and,
+    equally deliberately, does *not* unlock assignment: a confirmed emergency is
+    still handled by hand, outside the dispatch queue.
 
-    `CONFIRM_P3` needs nothing else and deliberately ends the automation.
-    `DOWNGRADE_SEVERITY` requires both a target priority below P3 and a written
+    `DOWNGRADE_PRIORITY` requires both a target band below P5 and a written
     reason -- overruling the model is a decision somebody has to own.
     """
 
     model_config = ConfigDict(extra="forbid")
 
-    decision: P3Decision
+    decision: EmergencyDecision
     priority: Priority | None = None
     reason: str = Field(default="", max_length=1000)
 
     @model_validator(mode="after")
     def validate_decision(self):
-        if self.decision is P3Decision.CONFIRM_P3:
+        if self.decision is EmergencyDecision.CONFIRM_P5:
             if self.priority is not None:
-                raise ValueError("CONFIRM_P3 does not take a priority; it keeps P3 by definition.")
+                raise ValueError("CONFIRM_P5 does not take a priority; it keeps P5 by definition.")
             return self
-        if self.priority not in {Priority.P1, Priority.P2}:
-            raise ValueError("DOWNGRADE_SEVERITY requires priority P1 or P2.")
+        if self.priority not in {Priority.P1, Priority.P2, Priority.P3, Priority.P4}:
+            raise ValueError("DOWNGRADE_PRIORITY requires a priority between P1 and P4.")
         if not self.reason.strip():
-            raise ValueError("DOWNGRADE_SEVERITY requires a reason.")
+            raise ValueError("DOWNGRADE_PRIORITY requires a reason.")
         return self
 
 
@@ -480,8 +524,6 @@ class CoordinatorCategoryResponse(BaseModel):
     id: UUID
     code: str
     display_name: str
-    base_score: int | None
-    priority_ceiling: Priority | None
     is_active: bool
 
 
@@ -490,8 +532,6 @@ class CategoryCreateRequest(BaseModel):
 
     code: str = Field(min_length=2, max_length=80, pattern=r"^[A-Z][A-Z0-9_]*$")
     display_name: str = Field(min_length=1, max_length=150)
-    base_score: int = Field(ge=0)
-    priority_ceiling: Priority | None = None
 
     @field_validator("code", mode="before")
     @classmethod
@@ -505,8 +545,6 @@ class CategoryUpdateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     display_name: str | None = Field(default=None, min_length=1, max_length=150)
-    base_score: int | None = Field(default=None, ge=0)
-    priority_ceiling: Priority | None = None
     is_active: bool | None = None
 
 

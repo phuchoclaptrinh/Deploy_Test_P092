@@ -70,11 +70,16 @@ class AssignmentRepository:
         return self.db.scalar(query)
 
     def list_for_technician(self, technician_id: UUID) -> list[TicketAssignment]:
+        # P4 first, P1 last. P5 has no rank because a technician never holds
+        # one: an emergency is handled manually and every assignment path
+        # refuses it. A P5 appearing here would be a bug, and it sorts last
+        # rather than first so it cannot quietly jump a real queue.
         priority_order = case(
-            (Ticket.priority == Priority.P3, 0),
-            (Ticket.priority == Priority.P2, 1),
-            (Ticket.priority == Priority.P1, 2),
-            else_=3,
+            (Ticket.priority == Priority.P4, 0),
+            (Ticket.priority == Priority.P3, 1),
+            (Ticket.priority == Priority.P2, 2),
+            (Ticket.priority == Priority.P1, 3),
+            else_=4,
         )
         return list(
             self.db.scalars(

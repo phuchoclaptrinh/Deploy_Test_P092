@@ -174,7 +174,7 @@ class DispatchLoader:
                 TicketAssignment.planned_finish_at,
                 Ticket.id.label("ticket_id"),
                 Ticket.created_at,
-                Ticket.score_total,
+                Ticket.risk_score,
                 Ticket.category_id,
                 CategoryCatalog.code,
             )
@@ -198,7 +198,7 @@ class DispatchLoader:
                     key=row.id,
                     ticket_ids=(row.ticket_id,),
                     duration=p80_for_code(row.code),
-                    score=Decimal(row.score_total or 0),
+                    score=Decimal(row.risk_score or 0),
                     submitted_at=as_utc(row.created_at),
                     # None for assignments written before scheduling existed, and
                     # for any path that placed work without simulating it. Such a

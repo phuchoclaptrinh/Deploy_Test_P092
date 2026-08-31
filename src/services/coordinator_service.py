@@ -8,14 +8,13 @@ from sqlalchemy.orm import Session
 from src.database.models.ai_analysis import AIAnalysisRun
 from src.database.models.category import CategoryCatalog
 from src.database.models.information_request import InformationRequest
-from src.database.models.scoring_rule_version import ScoringRuleVersion
 from src.database.models.ticket import Ticket
 from src.models.api.coordinator import ClassificationOverrideRequest, ManualReviewResolveRequest
 from src.models.api.errors import (
     CATEGORY_REQUIRED,
     INVALID_STATUS_TRANSITION,
     P0_REVIEW_REQUIRED,
-    SEVERITY_REQUIRED,
+    RISK_ASSESSMENT_REQUIRED,
     TICKET_NOT_FOUND,
     DomainError,
 )
@@ -25,15 +24,15 @@ from src.models.enums import (
     InformationRequestStatus,
     Priority,
     ResolutionSource,
-    SeveritySource,
+    RiskAssessmentSource,
     TicketStatus,
 )
 from src.repositories.catalog_repository import CatalogRepository
 from src.repositories.ticket_repository import TicketRepository
 from src.services.agent_common import GROUPING_CODES
 from src.services.coordinator_support import CoordinatorReadService, CoordinatorScoringSupport, CoordinatorSideEffects
-from src.services.p3_review_guard import assert_p3_review_not_pending
-from src.services.scoring_service import ScoringService
+from src.services.emergency_review_guard import assert_emergency_review_not_pending
+from src.services.risk_assessment_service import RiskAssessmentService, evidence_payload
 
 # Analysis contracts that stored Category *codes* in the run predictions. v3 and
 # v4 both store Category UUIDs (§1.3), so anything newer is compared by id and
@@ -48,9 +47,8 @@ class CoordinatorService:
         self.db = db
         self.tickets = TicketRepository(db)
         self.catalog = CatalogRepository(db)
-        active_rule = db.scalar(select(ScoringRuleVersion).where(ScoringRuleVersion.is_active.is_(True)))
-        self.scoring = ScoringService(active_rule.config if active_rule else None)
-        self.scoring_support = CoordinatorScoringSupport(db, self.scoring)
+        self.risk = RiskAssessmentService(db)
+        self.scoring_support = CoordinatorScoringSupport(db)
         self.side_effects = CoordinatorSideEffects(db)
         self.reads = CoordinatorReadService(db)
 
@@ -86,7 +84,7 @@ class CoordinatorService:
             # MANUAL_REVIEW is where two different things wait: a report the
             # analysis could not classify, and one it classified as an
             # emergency. Only the first is settled by this form.
-            assert_p3_review_not_pending(self.db, ticket_id)
+            assert_emergency_review_not_pending(self.db, ticket_id)
             if ticket.classification_status != ClassificationStatus.MANUAL_REVIEW:
                 raise DomainError(P0_REVIEW_REQUIRED, "Ticket không ở trạng thái P0/manual review.", 409)
             category = self.catalog.get_category(request.category_id)
@@ -94,36 +92,36 @@ class CoordinatorService:
                 raise DomainError(CATEGORY_REQUIRED, "Category không hợp lệ.", 400)
             self._assert_category_matches_source(ticket, category, request.resolution_source)
 
-            # A ticket that never reached a severity — the session failed, or the
-            # run stopped before scoring — cannot be scored on its own. The
-            # Coordinator supplies the missing value; an existing one is kept as
-            # it is and is not re-asked for.
-            stored_severity = ticket.severity
-            manual_severity = request.severity if stored_severity is None else None
-            if stored_severity is None and manual_severity is None:
+            # A ticket that was never scored -- the session failed, or the run
+            # stopped before the criteria were established -- cannot be
+            # prioritized on its own. The Coordinator supplies the five
+            # judgements; an existing assessment is kept as it is and is not
+            # re-asked for.
+            stored = self.risk.current(ticket)
+            manual_criteria = request.criteria if stored is None else None
+            if stored is None and manual_criteria is None:
                 raise DomainError(
-                    SEVERITY_REQUIRED,
-                    "Phản ánh chưa có Mức độ nghiêm trọng. Điều phối viên phải chọn LOW, MEDIUM hoặc HIGH để tính lại điểm.",
+                    RISK_ASSESSMENT_REQUIRED,
+                    "Phản ánh chưa được chấm điểm rủi ro. Điều phối viên phải chấm năm tiêu chí 0-4 để tính Priority.",
                     400,
                 )
 
             before = self._classification_snapshot(ticket)
-            before["severity"] = stored_severity.value if stored_severity else None
-            before["severity_source"] = ticket.severity_source.value if ticket.severity_source else None
             ticket.category_id = category.id
-            if manual_severity is not None:
-                ticket.severity = manual_severity
-                ticket.severity_source = SeveritySource.COORDINATOR_MANUAL
             ticket.classification_status = ClassificationStatus.RESOLVED
-            # Red flag still forces P3 here: the scoring service short-circuits on
-            # it, so a manual severity can never soften an urgent ticket.
-            self.scoring_support.apply_scoring(ticket, category)
+            if manual_criteria is not None:
+                self.risk.record(
+                    ticket,
+                    criteria=manual_criteria.to_domain(),
+                    source=RiskAssessmentSource.HUMAN_REVIEW,
+                    blocker_codes=request.blockers,
+                    evidence=evidence_payload(request.evidence),
+                    reviewed_by=coordinator_user_id,
+                )
             self._sync_grouping_after_category_change(ticket, category)
             ticket.version += 1
             after = self._classification_snapshot(ticket)
             after["resolution_source"] = request.resolution_source.value
-            after["severity"] = ticket.severity.value if ticket.severity else None
-            after["severity_source"] = ticket.severity_source.value if ticket.severity_source else None
             self.side_effects.audit(
                 coordinator_user_id,
                 "RESOLVE_MANUAL_REVIEW",
@@ -196,7 +194,7 @@ class CoordinatorService:
             ticket = self._locked(ticket_id)
             # Retired, but still routable by an old client, and it moves the
             # ticket's status like anything else.
-            assert_p3_review_not_pending(self.db, ticket_id)
+            assert_emergency_review_not_pending(self.db, ticket_id)
             if ticket.status != TicketStatus.NEW:
                 raise DomainError(INVALID_STATUS_TRANSITION, "Chỉ ticket Mới mới có thể yêu cầu bổ sung thông tin.", 409)
             old = ticket.status
@@ -240,7 +238,7 @@ class CoordinatorService:
     def approve(self, coordinator_user_id: UUID, ticket_id: UUID) -> Ticket:
         try:
             ticket = self._locked(ticket_id)
-            assert_p3_review_not_pending(self.db, ticket_id)
+            assert_emergency_review_not_pending(self.db, ticket_id)
             if ticket.status != TicketStatus.NEW:
                 raise DomainError(INVALID_STATUS_TRANSITION, "Chỉ ticket Mới mới có thể được duyệt.", 409)
             if ticket.classification_status == ClassificationStatus.MANUAL_REVIEW:
@@ -276,7 +274,7 @@ class CoordinatorService:
             # A P3 ticket already has a category and a priority. Changing them
             # here would be answering the gate's question through a door that
             # records no decision, no reviewer and no reason.
-            assert_p3_review_not_pending(self.db, ticket_id)
+            assert_emergency_review_not_pending(self.db, ticket_id)
             if ticket.status != TicketStatus.NEW:
                 raise DomainError(INVALID_STATUS_TRANSITION, "Chỉ ticket Mới mới có thể điều chỉnh phân loại.", 409)
             if ticket.classification_status == ClassificationStatus.MANUAL_REVIEW:
@@ -287,15 +285,20 @@ class CoordinatorService:
                 category = self.catalog.get_category(request.category_id)
                 if category is None:
                     raise DomainError(CATEGORY_REQUIRED, "Category không hợp lệ.", 400)
-                if ticket.severity is None and request.priority is None:
-                    raise DomainError(CATEGORY_REQUIRED, "Ticket chưa có Severity để tính lại Priority.", 409)
                 ticket.category_id = category.id
                 ticket.classification_status = ClassificationStatus.RESOLVED
-                if ticket.severity is not None:
-                    self.scoring_support.apply_scoring(ticket, category)
             if request.priority is not None:
-                ticket.priority = Priority.P3 if ticket.red_flag_detected else request.priority
-                self.scoring_support.recalculate_sla(ticket)
+                # A category change alone no longer moves a priority: the
+                # category is not an input to the score. Only an explicit
+                # priority does, and it is recorded as a human override rather
+                # than written straight onto the ticket, so the reason travels
+                # with it.
+                self.risk.record_priority_override(
+                    ticket,
+                    priority=request.priority,
+                    reason=request.reason,
+                    reviewed_by=coordinator_user_id,
+                )
             if category is not None:
                 self._sync_grouping_after_category_change(ticket, category)
             ticket.version += 1
@@ -349,7 +352,7 @@ class CoordinatorService:
             "category_id": str(ticket.category_id) if ticket.category_id else None,
             "priority": ticket.priority.value if ticket.priority else None,
             "classification_status": ticket.classification_status.value,
-            "score_total": float(ticket.score_total) if ticket.score_total is not None else None,
+            "risk_score": float(ticket.risk_score) if ticket.risk_score is not None else None,
         }
 
     def _sync_grouping_after_category_change(self, ticket: Ticket, category: CategoryCatalog) -> None:
@@ -357,7 +360,10 @@ class CoordinatorService:
         latest_run = self._latest_successful_analysis_run(ticket.id)
         if latest_run is None:
             return
-        if ticket.priority is Priority.P3:
+        # The emergency band never groups. It is P5 now, not P3: the scale
+        # inverted, and a check written against the old top band would let an
+        # emergency into a case while excluding routine work.
+        if ticket.priority is Priority.P5:
             latest_run.grouping_status = GROUPING_NOT_ELIGIBLE
             return
         latest_run.grouping_status = (

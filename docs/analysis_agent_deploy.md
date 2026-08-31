@@ -1,7 +1,17 @@
 # Deploying the canonical analysis agent
 
-Two migrations sit between the current production schema (`5b6c7d8e9f0a`) and
-this build:
+> **Superseded by risk scoring v2 (`a1b2c3d4e5f7` and later).** The runbook
+> below is the one for the *canonical analysis agent* rollout, and the schema it
+> describes no longer exists: `p3_review_status` is now
+> `emergency_review_status`, `severity` and `red_flag` are gone from
+> `ai_analysis_runs`, and the emergency band moved from P3 to P5. Deploying the
+> current build is covered in [`docs/operations.md` §11](operations.md).
+>
+> Kept because it is still the accurate account of how the dual-runtime era was
+> closed out, which the `6c7d8e9f0a1b` migration depends on having happened.
+
+Two migrations sit between the schema this runbook was written for
+(`5b6c7d8e9f0a`) and the build it describes:
 
 | Revision | What it adds |
 | --- | --- |

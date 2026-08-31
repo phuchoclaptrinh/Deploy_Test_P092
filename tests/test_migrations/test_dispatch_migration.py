@@ -59,7 +59,7 @@ def test_the_dispatch_revision_is_still_in_the_chain():
     assert len(_heads()) == 1
 
 
-def test_it_follows_the_p3_review_revision():
+def test_it_follows_the_emergency_review_revision():
     module = _load(VERSIONS / f"{REVISION}_replace_proposal_with_dispatch.py")
     assert module.revision == REVISION
     assert module.down_revision == "7d8e9f0a1b2c"

@@ -47,6 +47,11 @@ class Settings(BaseSettings):
     max_ticket_image_bytes: int = Field(default=10 * 1024 * 1024, ge=1)
     allowed_ticket_image_mime_types: str | list[str] = "image/jpeg,image/png,image/webp"
     allow_live_migration: bool = False
+    # The database an online migration is allowed to touch, as
+    # `host[:port]/name`. Empty is fine for a local target; for anything
+    # else `src.database.migration_safety` requires it and requires it to
+    # match DATABASE_URL. Set it on the migrating command, not in `.env`.
+    migration_target: str = ""
     run_supabase_integration_tests: bool = False
 
 

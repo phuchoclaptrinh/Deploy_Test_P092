@@ -40,7 +40,7 @@ export const categories: Category[] = [
   "Kết cấu", "Hỏng đèn", "Mùi hôi / vệ sinh", "Tiếng ồn",
 ];
 
-export const priorities: Priority[] = ["P3", "P2", "P1", "P0"];
+export const priorities: Priority[] = ["P5", "P4", "P3", "P2", "P1", "P0"];
 
 export const statusLabels: Record<TicketStatus, string> = {
   new: "Mới", analyzing: "Đang phân tích", awaiting_response: "Đang chờ bạn trả lời", needs_info: "Cần bổ sung",
@@ -49,21 +49,38 @@ export const statusLabels: Record<TicketStatus, string> = {
 };
 
 export const priorityLabels: Record<Priority, string> = {
-  P0: "Cần BQL duyệt", P1: "Bình thường", P2: "Nghiêm trọng", P3: "Rất khẩn cấp",
+  P0: "Cần BQL duyệt",
+  P1: "Bình thường",
+  P2: "Theo lịch",
+  P3: "Cần sớm",
+  P4: "Trong ca",
+  P5: "Rất khẩn cấp",
 };
 
+/** What a resident is told, in hours of the working day rather than in the
+ *  service minutes the backend counts. `docs/risk_scoring_v2.md` §6.1 gives
+ *  1800/1200/600/180 service minutes over a ten-hour window; these are the same
+ *  promises said in a way somebody waiting can act on. */
 export const slaLabels: Record<Priority, string> = {
   P0: "Chờ BQL xác nhận thủ công",
-  P1: "Dự kiến xử lý trong vòng 72 giờ",
-  P2: "Dự kiến xử lý trong vòng 3 giờ",
-  P3: "Dự kiến xử lý trong vòng 5 phút",
+  P1: "Dự kiến xử lý trong 3 ngày làm việc",
+  P2: "Dự kiến xử lý trong 2 ngày làm việc",
+  P3: "Dự kiến xử lý trong 1 ngày làm việc",
+  P4: "Dự kiến xử lý trong 3 giờ làm việc",
+  P5: "Ban quản lý đang xử lý ngay",
 };
 
 const now = () => new Date().toISOString();
 const ago = (minutes: number) => new Date(Date.now() - minutes * 60_000).toISOString();
 const uid = (prefix: string) => `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2, 7)}`;
 const addMinutes = (iso: string, minutes: number) => new Date(Date.parse(iso) + minutes * 60_000).toISOString();
-const dueAt = (priority: Priority, createdAt: string) => priority === "P3" ? addMinutes(createdAt, 5) : priority === "P2" ? addMinutes(createdAt, 180) : priority === "P1" ? addMinutes(createdAt, 4320) : undefined;
+const mockSlaMinutes: Partial<Record<Priority, number>> = { P1: 1800, P2: 1200, P3: 600, P4: 180, P5: 5 };
+const mockPriorityScores: Partial<Record<Priority, number>> = { P1: 10, P2: 30, P3: 50, P4: 70, P5: 90 };
+const dueAt = (priority: Priority, createdAt: string) => {
+  const minutes = mockSlaMinutes[priority];
+  return minutes == null ? undefined : addMinutes(createdAt, minutes);
+};
+const scoreForPriority = (priority: Priority) => mockPriorityScores[priority] ?? null;
 const timeline = (status: TicketStatus, label: string, actor: string, createdAt: string): TimelineEntry => ({ id: uid("TL"), status, label, actor, createdAt });
 
 type SeedTicket = Pick<Ticket, "id" | "title" | "unitId" | "floor" | "locationType" | "category" | "priority" | "score" | "status" | "createdAt"> & Partial<Ticket>;
@@ -75,12 +92,12 @@ const seedTicket = (input: SeedTicket): Ticket => ({
 
 const seedStore = (): Store => {
   const tickets: Ticket[] = [
-    seedTicket({ id: "TK-1042", title: "Thang máy số 2 kẹt người", description: "Có người bị kẹt trong thang máy, chuông báo đang kêu liên tục.", unitId: "A-1203", floor: "Tòa A · Tầng 12", locationType: "Thang máy số 2", category: "Thang máy", priority: "P3", score: 74, status: "in_progress", createdAt: ago(8), updatedAt: ago(5), redFlag: true, image: { name: "Ảnh bảng báo lỗi", dataUrl: DEMO_IMAGE, crop: "left" }, technicianId: "TECH-01", technicianName: "Nguyễn Minh An", assignmentNote: "Ưu tiên kiểm tra cabin số 2.", timeline: [timeline("new", "Đã gửi", "Cư dân", ago(8)), timeline("approved", "Đã duyệt", "BQL Lan", ago(7)), timeline("assigned", "Đã gán kỹ thuật viên", "BQL Lan", ago(6)), timeline("in_progress", "Đang xử lý", "Nguyễn Minh An", ago(4))] }),
-    seedTicket({ id: "TK-1041", title: "Dây điện hở tại hầm xe", description: "Có tia lửa và mùi khét gần khu vực đỗ xe.", unitId: "B-0305", floor: "Tòa B · Tầng 3", locationType: "Bãi xe hầm", category: "Chập điện", priority: "P3", score: 68, status: "new", createdAt: ago(18), redFlag: true, image: { name: "Ảnh dây điện", dataUrl: DEMO_IMAGE, crop: "right" } }),
+    seedTicket({ id: "TK-1042", title: "Thang máy số 2 báo lỗi", description: "Thang máy dừng tầng 12, chuông báo đang kêu liên tục nhưng không có cư dân bên trong.", unitId: "A-1203", floor: "Tòa A · Tầng 12", locationType: "Thang máy số 2", category: "Thang máy", priority: "P4", score: 74, status: "in_progress", createdAt: ago(8), updatedAt: ago(5), redFlag: true, image: { name: "Ảnh bảng báo lỗi", dataUrl: DEMO_IMAGE, crop: "left" }, technicianId: "TECH-01", technicianName: "Nguyễn Minh An", assignmentNote: "Ưu tiên kiểm tra cabin số 2.", timeline: [timeline("new", "Đã gửi", "Cư dân", ago(8)), timeline("approved", "Đã duyệt", "BQL Lan", ago(7)), timeline("assigned", "Đã gán kỹ thuật viên", "BQL Lan", ago(6)), timeline("in_progress", "Đang xử lý", "Nguyễn Minh An", ago(4))] }),
+    seedTicket({ id: "TK-1041", title: "Dây điện hở tại hầm xe", description: "Có tia lửa và mùi khét gần khu vực đỗ xe.", unitId: "B-0305", floor: "Tòa B · Tầng 3", locationType: "Bãi xe hầm", category: "Chập điện", priority: "P5", score: 90, status: "new", createdAt: ago(18), redFlag: true, image: { name: "Ảnh dây điện", dataUrl: DEMO_IMAGE, crop: "right" } }),
     seedTicket({ id: "TK-1040", title: "Nước thấm trần hành lang", description: "Nước nhỏ liên tục từ trần xuống hành lang.", unitId: "A-0708", floor: "Tòa A · Tầng 7", locationType: "Hành lang", category: "Rò nước", priority: "P2", score: 46, status: "approved", createdAt: ago(42), updatedAt: ago(40), image: { name: "Ảnh trần thấm", dataUrl: DEMO_IMAGE, crop: "center" }, timeline: [timeline("new", "Đã gửi", "Cư dân", ago(42)), timeline("approved", "Đã duyệt", "BQL Lan", ago(40))] }),
     seedTicket({ id: "TK-1039", title: "Ảnh và mô tả không khớp", description: "Tôi nghe tiếng ồn lớn ở hành lang, ảnh chụp lại là vệt nước dưới sàn.", unitId: "A-1203", floor: "Tòa A · Tầng 12", locationType: "Trong căn hộ", category: "Rò nước", priority: "P0", score: null, status: "p0_review", createdAt: ago(1140), image: { name: "Ảnh vệt nước", dataUrl: DEMO_IMAGE, crop: "center" }, p0Evidence: { imageCategory: "Rò nước", textCategory: "Tiếng ồn", imageSeverity: "Vừa" }, timeline: [timeline("new", "Đã gửi", "Cư dân", ago(1140)), timeline("p0_review", "Chờ BQL xác nhận", "Hệ thống AI", ago(1139))] }),
     seedTicket({ id: "TK-1038", title: "Khóa cửa chính bị kẹt", description: "Khóa cửa không thể đóng lại hoàn toàn.", unitId: "C-0201", floor: "Tòa C · Tầng 2", locationType: "Cửa chính", category: "Hỏng khóa / cửa", priority: "P2", score: 38, status: "in_progress", createdAt: ago(1215), updatedAt: ago(1200), image: { name: "Ảnh khóa cửa", dataUrl: DEMO_IMAGE, crop: "left" }, timeline: [timeline("new", "Đã gửi", "Cư dân", ago(1215)), timeline("approved", "Đã duyệt", "BQL Lan", ago(1210)), timeline("in_progress", "Đang xử lý", "BQL Lan", ago(1200))] }),
-    seedTicket({ id: "TK-1037", title: "Chập điện khu vực hầm xe", unitId: "B-0309", floor: "Tòa B · Tầng 3", locationType: "Bãi xe hầm", category: "Chập điện", priority: "P3", score: 72, status: "in_progress", createdAt: ago(70), updatedAt: ago(65), redFlag: true }),
+    seedTicket({ id: "TK-1037", title: "Chập điện khu vực hầm xe", unitId: "B-0309", floor: "Tòa B · Tầng 3", locationType: "Bãi xe hầm", category: "Chập điện", priority: "P4", score: 72, status: "in_progress", createdAt: ago(70), updatedAt: ago(65), redFlag: true }),
     seedTicket({ id: "TK-1036", title: "Đèn hành lang bị hỏng", unitId: "B-0902", floor: "Tòa B · Tầng 9", locationType: "Hành lang", category: "Hỏng đèn", priority: "P1", score: 22, status: "approved", createdAt: ago(1550), updatedAt: ago(1540), image: { name: "Ảnh bóng đèn", dataUrl: DEMO_IMAGE, crop: "right" } }),
     seedTicket({ id: "TK-1035", title: "Tiếng ồn kéo dài", unitId: "A-0502", floor: "Tòa A · Tầng 5", locationType: "Trong căn hộ", category: "Tiếng ồn", priority: "P1", score: 17, status: "new", createdAt: ago(1700) }),
     seedTicket({ id: "TK-1029", title: "Nước đọng hành lang tầng 8", unitId: "A-0803", floor: "Tòa A · Tầng 8", locationType: "Hành lang", category: "Rò nước", priority: "P2", score: 40, status: "in_progress", createdAt: ago(1800), updatedAt: ago(1780) }),
@@ -94,14 +111,14 @@ const seedStore = (): Store => {
     version: 5, revision: 1, tickets,
     audit: [
       { id: "AUD-3", ticketId: "TK-1042", actor: "BQL Lan", action: "Đổi trạng thái", before: "Đã duyệt", after: "Đang xử lý", createdAt: ago(5) },
-      { id: "AUD-2", ticketId: "TK-1041", actor: "Hệ thống AI", action: "Red-flag override", before: "—", after: "P3", reason: "RedFlagSignal: dây điện hở", createdAt: ago(18) },
+      { id: "AUD-2", ticketId: "TK-1041", actor: "Hệ thống AI", action: "Red-flag override", before: "—", after: "P5", reason: "RedFlagSignal: dây điện hở", createdAt: ago(18) },
       { id: "AUD-1", ticketId: "TK-1040", actor: "BQL Lan", action: "Duyệt ticket", before: "Mới", after: "Đã duyệt", createdAt: ago(40) },
     ],
     notifications: [
       { id: "NOTI-3", ticketId: "TK-1042", role: "resident", title: "Cập nhật trạng thái", body: "#TK-1042 → Đang xử lý", createdAt: ago(5), unread: true },
       { id: "NOTI-2", ticketId: "TK-1039", role: "resident", title: "Ticket đang chờ BQL duyệt", body: "BQL đang đối chiếu ảnh và nội dung của #TK-1039.", createdAt: ago(1139), unread: true },
       { id: "NOTI-1", ticketId: "TK-1028", role: "resident", title: "Hoàn thành", body: "#TK-1028 đã hoàn thành.", createdAt: ago(11_400), unread: false },
-      { id: "NOTI-TECH-1", ticketId: "TK-1042", role: "technician", title: "Công việc khẩn cấp được giao", body: "#TK-1042 · Thang máy số 2 · Tòa A tầng 12", createdAt: ago(6), unread: true },
+      { id: "NOTI-TECH-1", ticketId: "TK-1042", role: "technician", title: "Công việc ưu tiên được giao", body: "#TK-1042 · Thang máy số 2 · Tòa A tầng 12", createdAt: ago(6), unread: true },
       { id: "NOTI-4", ticketId: "TK-1022", role: "resident", title: "Cần bạn trả lời", body: "AI cần thêm thông tin để phân loại #TK-1022.", createdAt: ago(2), unread: true },
     ],
     technicians: [
@@ -173,7 +190,7 @@ const inferTicket = (payload: CreateTicketPayload) => {
   const text = `${payload.description} ${payload.locationType}`.toLowerCase();
   const images = payload.images?.length ? payload.images : payload.image ? [payload.image] : [];
   if (images.some((image) => image.name.toLowerCase().includes("mờ"))) return { unreadable: true } as const;
-  if (/(cháy|khói|kẹt người|điện hở|ngất|gây rối)/i.test(text)) return { category: text.includes("kẹt") ? "Thang máy" as Category : "Chập điện" as Category, priority: "P3" as Priority, score: 90, redFlag: true, title: "Sự cố cần xử lý khẩn cấp" };
+  if (/(cháy|khói|kẹt người|điện hở|ngất|gây rối)/i.test(text)) return { category: text.includes("kẹt") ? "Thang máy" as Category : "Chập điện" as Category, priority: "P5" as Priority, score: 90, redFlag: true, title: "Sự cố cần xử lý khẩn cấp" };
   if (images.length > 0 && /(ồn|tiếng)/i.test(text)) return { category: "Rò nước" as Category, priority: "P0" as Priority, score: null, redFlag: false, title: "Cần BQL xác nhận", p0Evidence: { imageCategory: "Rò nước" as Category, textCategory: "Tiếng ồn" as Category, imageSeverity: "Vừa" as const } };
   if (/(nước|rò|tràn|thấm)/i.test(text)) return { category: "Rò nước" as Category, priority: "P1" as Priority, score: 24, redFlag: false, title: "Rò nước cần kiểm tra" };
   if (/(đèn|bóng)/i.test(text)) return { category: "Hỏng đèn" as Category, priority: "P1" as Priority, score: 18, redFlag: false, title: "Hỏng đèn khu vực chung" };
@@ -206,7 +223,7 @@ export const assignTicket = (ticketId: string, technicianId: string, note = "") 
   const store = readStore();
   const ticket = store.tickets.find((item) => item.id === ticketId);
   const technician = store.technicians.find((item) => item.id === technicianId && item.active);
-  if (!ticket || !technician || !["approved", "assigned", "in_progress"].includes(ticket.status) || ticket.technicianId === technicianId) return false;
+  if (!ticket || ticket.priority === "P5" || !technician || !["approved", "assigned", "in_progress"].includes(ticket.status) || ticket.technicianId === technicianId) return false;
   const previousTechnicianId = ticket.technicianId;
   const previousTechnicianName = ticket.technicianName;
   ticket.technicianId = technician.id;
@@ -221,7 +238,7 @@ export const assignTicket = (ticketId: string, technicianId: string, note = "") 
   }
   const reassigned = Boolean(previousTechnicianId);
   addAudit(store, { ticketId, actor: "BQL Lan", action: reassigned ? "Gán lại kỹ thuật viên" : "Gán kỹ thuật viên", before: previousTechnicianName || "Chưa phân công", after: technician.name, reason: note.trim() || undefined });
-  addNotification(store, { ticketId, role: "technician", title: `${ticket.priority === "P3" ? "Công việc khẩn cấp" : "Công việc mới"} được giao`, body: `${ticket.id} · ${ticket.category} · ${ticket.floor}` });
+  addNotification(store, { ticketId, role: "technician", title: "Công việc mới được giao", body: `${ticket.id} · ${ticket.category} · ${ticket.floor}` });
   addNotification(store, { ticketId, role: "resident", title: `${ticket.id} ${reassigned ? "đã đổi kỹ thuật viên" : "đã được phân công"}`, body: `Kỹ thuật viên ${technician.name} sẽ tiếp nhận phản ánh.` });
   writeStore(store);
   return true;
@@ -288,8 +305,8 @@ export const createTicket = async (payload: CreateTicketPayload): Promise<Create
 
 export const reviewP0 = (ticketId: string, category: Category) => {
   const store = readStore(); const ticket = store.tickets.find((item) => item.id === ticketId); if (!ticket || ticket.priority !== "P0") return false;
-  ticket.category = category; ticket.priority = category === "Chập điện" || category === "Thang máy" ? "P3" : category === "Rò nước" ? "P1" : "P2";
-  ticket.score = ticket.priority === "P3" ? 72 : ticket.priority === "P2" ? 42 : 24; ticket.dueAt = dueAt(ticket.priority, ticket.createdAt); ticket.p0Evidence = undefined;
+  ticket.category = category; ticket.priority = category === "Chập điện" || category === "Thang máy" ? "P4" : category === "Rò nước" ? "P2" : "P1";
+  ticket.score = scoreForPriority(ticket.priority); ticket.dueAt = dueAt(ticket.priority, ticket.createdAt); ticket.p0Evidence = undefined;
   commitStatus(ticket, "approved", "BQL Lan");
   addAudit(store, { ticketId, actor: "BQL Lan", action: "Duyệt P0", before: "P0", after: `${category} / ${ticket.priority}`, reason: "Đối chiếu ảnh và mô tả gốc" });
   addNotification(store, { ticketId, role: "resident", title: `${ticketId} đã được BQL xác nhận`, body: slaLabels[ticket.priority] }); writeStore(store); return true;
@@ -315,12 +332,12 @@ export const answerAiQuestion = (ticketId: string, answer: string) => {
   ticket.description = `${ticket.description}\n\nTrả lời AI: ${answer.trim()}`;
   const dangerous = /(nguy hiểm|chảy thành dòng|tràn|tia lửa|khói|kẹt)/i.test(answer);
   ticket.category = dangerous && /(điện|tia lửa|khói)/i.test(answer) ? "Chập điện" : "Rò nước";
-  ticket.priority = dangerous ? "P3" : "P1";
-  ticket.score = dangerous ? 90 : 24;
+  ticket.priority = dangerous ? "P5" : "P1";
+  ticket.score = scoreForPriority(ticket.priority);
   ticket.redFlag = dangerous;
   ticket.dueAt = dueAt(ticket.priority, ticket.createdAt);
   commitStatus(ticket, "new", "Hệ thống AI", dangerous ? "Phát hiện dấu hiệu nguy hiểm — chuyển BQL ngay" : "Đã nhận câu trả lời bổ sung");
-  addAudit(store, { ticketId, actor: "Hệ thống AI", action: "Xử lý câu trả lời cư dân", before: "Đang chờ trả lời", after: dangerous ? "P3 / Mới" : "P1 / Mới", reason: answer.trim() });
+  addAudit(store, { ticketId, actor: "Hệ thống AI", action: "Xử lý câu trả lời cư dân", before: "Đang chờ trả lời", after: dangerous ? "P5 / Mới" : "P1 / Mới", reason: answer.trim() });
   addNotification(store, { ticketId, role: "resident", title: dangerous ? "Đã chuyển sự cố khẩn cấp tới BQL" : "Đã nhận câu trả lời", body: dangerous ? "Ảnh hoặc nội dung có dấu hiệu nguy hiểm, BQL sẽ liên hệ ngay." : "Ticket đang tiếp tục được xử lý." });
   writeStore(store); return true;
 };
@@ -339,16 +356,16 @@ export const supplementTicket = (ticketId: string, description: string, image?: 
 };
 
 export const overrideTicket = (ticketId: string, category: Category, priority: Priority, reason: string) => {
-  if (!reason.trim() || priority === "P0") return false;
+  if (!reason.trim() || priority === "P0" || priority === "P5") return false;
   const store = readStore(); const ticket = store.tickets.find((item) => item.id === ticketId); if (!ticket) return false;
-  const before = `${ticket.category} / ${ticket.priority}`; ticket.category = category; ticket.priority = priority; ticket.score = priority === "P3" ? 80 : priority === "P2" ? 48 : 24; ticket.dueAt = dueAt(priority, ticket.createdAt); ticket.overrideReason = reason;
+  const before = `${ticket.category} / ${ticket.priority}`; ticket.category = category; ticket.priority = priority; ticket.score = scoreForPriority(priority); ticket.dueAt = dueAt(priority, ticket.createdAt); ticket.overrideReason = reason;
   if (["new", "p0_review", "needs_info"].includes(ticket.status)) commitStatus(ticket, "approved", "BQL Lan"); else ticket.updatedAt = now();
   addAudit(store, { ticketId, actor: "BQL Lan", action: "Override Category/Priority", before, after: `${category} / ${priority}`, reason });
   addNotification(store, { ticketId, role: "resident", title: `${ticketId} đã được điều chỉnh`, body: slaLabels[priority] }); writeStore(store); return true;
 };
 
 export const updateTicketStatus = (ticketId: string, payload: StatusUpdatePayload) => {
-  const store = readStore(); const ticket = store.tickets.find((item) => item.id === ticketId); if (!ticket || ticket.priority === "P0") return false;
+  const store = readStore(); const ticket = store.tickets.find((item) => item.id === ticketId); if (!ticket || ticket.priority === "P0" || ticket.priority === "P5") return false;
   const allowed: Partial<Record<TicketStatus, StatusUpdatePayload["status"][]>> = { new: ["approved"] };
   if (!allowed[ticket.status]?.includes(payload.status)) return false;
   const before = statusLabels[ticket.status]; commitStatus(ticket, payload.status, "BQL Lan");
@@ -363,7 +380,7 @@ export const cancelTicket = (ticketId: string) => {
 
 export const listClusters = (): TicketCluster[] => {
   const cutoff = Date.now() - 3 * 86_400_000;
-  const candidates = readStore().tickets.filter((ticket): ticket is Ticket & { category: "Rò nước" | "Chập điện" } => (ticket.category === "Rò nước" || ticket.category === "Chập điện") && ticket.priority !== "P0" && ticket.status !== "cancelled" && Date.parse(ticket.createdAt) >= cutoff);
+  const candidates = readStore().tickets.filter((ticket): ticket is Ticket & { category: "Rò nước" | "Chập điện" } => (ticket.category === "Rò nước" || ticket.category === "Chập điện") && ticket.priority !== "P0" && ticket.priority !== "P5" && ticket.status !== "cancelled" && Date.parse(ticket.createdAt) >= cutoff);
   const buckets = new Map<string, Ticket[]>();
   candidates.forEach((ticket) => { const key = `${ticket.category}|${buildingOf(ticket)}`; buckets.set(key, [...(buckets.get(key) || []), ticket]); });
   const clusters: TicketCluster[] = [];
@@ -388,4 +405,7 @@ export const formatDateTime = (iso: string) => new Intl.DateTimeFormat("vi-VN", 
 export const formatRemaining = (iso?: string) => { if (!iso) return "Chờ xác nhận"; const ms = Date.parse(iso) - Date.now(); const abs = Math.abs(ms); const hours = Math.floor(abs / 3_600_000); const minutes = Math.floor((abs % 3_600_000) / 60_000); return `${ms < 0 ? "Quá hạn" : "Còn"} ${hours ? `${hours}g ` : ""}${minutes}p`; };
 const buildingOf = (ticket: Ticket) => ticket.floor.match(/Tòa\s+[A-Z]/i)?.[0] || `Tòa ${ticket.unitId.charAt(0)}`;
 const floorOf = (ticket: Ticket) => Number(ticket.floor.match(/Tầng\s+(\d+)/i)?.[1] || 0);
-const priorityRank = (priority: Priority) => ({ P3: 4, P2: 3, P1: 2, P0: 1 })[priority];
+/** Sort weight, most urgent first. P5 is the emergency and P0 is "nobody has
+ *  classified it yet", which sits below every real band rather than above them:
+ *  an unclassified report is not urgent, it is unknown. */
+const priorityRank = (priority: Priority): number => ({ P5: 6, P4: 5, P3: 4, P2: 3, P1: 2, P0: 1 })[priority];

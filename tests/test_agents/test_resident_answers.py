@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import pytest
 
-from src.agents.nodes import SEVERITY_OPTIONS
+from src.agents.nodes import CRITERION_ANSWER_OPTIONS
 from src.agents.service import resume_analysis, run_analysis
 from src.models.agent_schemas import (
     LOCATION_CHANGE_OPTION,
@@ -123,29 +123,30 @@ def test_choosing_another_location_moves_the_ticket_and_the_analysis_continues(a
     assert agent_world.latest_run(ticket_id).exit_reason == "ANALYSIS_COMPLETE"
 
 
-def test_a_replacement_location_on_a_severity_question_is_rejected(agent_world):
+def test_a_replacement_location_on_a_criterion_question_is_rejected(agent_world):
     """`selected_location_id` means one thing on one kind of question. Anywhere
     else it would let a caller believe it had moved the ticket."""
     ticket_id = agent_world.make_ticket(location_id=agent_world.bath_a, unit_id=agent_world.unit_a)
     llm = ScriptedLLM(
         [
             classification(
-                severity=None,
-                question_kind="SEVERITY_CONFIRMATION",
-                question_text="Mức độ ảnh hưởng hiện tại thế nào?",
+                property_spread=None,
+                unknown_facts=["property_spread"],
+                question_kind="SPREAD_CONFIRMATION",
+                question_text="Nước có đang lan sang căn bên cạnh không?",
             ),
             classification(),
         ]
     )
     run_analysis(ticket_id, llm=llm)
     question = agent_world.pending_question(ticket_id)
-    assert question.question_kind == AgentQuestionKind.SEVERITY_CONFIRMATION.value
+    assert question.question_kind == AgentQuestionKind.SPREAD_CONFIRMATION.value
 
     with pytest.raises(DomainError) as excinfo:
         agent_world.answer(
             ticket_id,
             question.id,
-            next(iter(SEVERITY_OPTIONS)),
+            next(iter(CRITERION_ANSWER_OPTIONS["property_spread"])),
             location_id=agent_world.lift,
         )
 

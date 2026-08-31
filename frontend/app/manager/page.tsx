@@ -10,11 +10,12 @@ import { ManagerPagination } from "@/components/manager/ManagerPagination";
 import { TicketDetailPanel } from "@/components/manager/TicketDetailPanel";
 import { RoleShell } from "@/components/RoleShell";
 import { formatCategoryName } from "@/lib/category";
+import { PRIORITIES, formatRiskScore } from "@/lib/risk";
 import { formatTicketCode } from "@/lib/display";
 import { assignmentStatusDisplay } from "@/lib/assignmentStatus";
 import { formatClock, formatDay, formatDateTime } from "@/lib/managerTicket";
 import { getSeenManagerTickets } from "@/lib/managerTicketSeen";
-import { P3_PENDING_LABEL, isP3ReviewPending } from "@/lib/p3Review";
+import { EMERGENCY_PENDING_LABEL, isEmergencyReviewPending } from "@/lib/emergencyReview";
 import type { CoordinatorTicket } from "@/types/api";
 
 const PAGE_SIZE = 8;
@@ -142,7 +143,7 @@ export default function ManagerDashboard() {
           </div>
           <div className="mdFilters">
             <select aria-label="Lọc danh mục" className="mdFilter" value={category} onChange={(event) => setCategory(event.target.value)}><option value="all">Danh mục</option>{categories.map((item) => <option value={item} key={item}>{formatCategoryName(item)}</option>)}</select>
-            <select aria-label="Lọc mức ưu tiên" className="mdFilter" value={priority} onChange={(event) => setPriority(event.target.value)}><option value="all">Mức ưu tiên</option><option>P3</option><option>P2</option><option>P1</option></select>
+            <select aria-label="Lọc mức ưu tiên" className="mdFilter" value={priority} onChange={(event) => setPriority(event.target.value)}><option value="all">Mức ưu tiên</option>{[...PRIORITIES].reverse().map((band) => <option value={band} key={band}>{band}</option>)}</select>
             <select aria-label="Lọc trạng thái" className="mdFilter" value={status} onChange={(event) => setStatus(event.target.value)}><option value="all">Trạng thái</option><option value="MANUAL_REVIEW">Chờ duyệt thủ công</option>{Object.entries(labels).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select>
             <select aria-label="Lọc khoảng thời gian" className="mdFilter" value={period} onChange={(event) => setPeriod(event.target.value)}><option value="all">Khoảng thời gian</option><option value="day">24 giờ qua</option><option value="week">7 ngày qua</option></select>
           </div>
@@ -159,20 +160,20 @@ export default function ManagerDashboard() {
                       const selected = selectedTicketId === ticket.id;
                       const unseen = isNew(ticket);
                       const atRisk = isScheduleAtRisk(ticket);
-                      const p3Urgent = isP3ReviewPending(ticket);
+                      const emergencyUrgent = isEmergencyReviewPending(ticket);
                       return <tr
                         key={ticket.id}
                         tabIndex={0}
                         role="button"
                         aria-pressed={selected}
-                        aria-label={`Mở chi tiết ${formatTicketCode(ticket.id)}${p3Urgent ? " - chờ duyệt khẩn cấp P3" : ""}`}
+                        aria-label={`Mở chi tiết ${formatTicketCode(ticket.id)}${emergencyUrgent ? " - chờ duyệt khẩn cấp P5" : ""}`}
                         onClick={() => setSelectedTicketId(ticket.id)}
                         onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); setSelectedTicketId(ticket.id); } }}
-                        className={`mdRow mdRow-${manualReview ? "P0" : ticket.priority || "P1"}${selected ? " selected" : ""}${unseen ? " unseen" : ""}${p3Urgent ? " p3Urgent" : ""}`}
+                        className={`mdRow mdRow-${manualReview ? "P0" : ticket.priority || "P1"}${selected ? " selected" : ""}${unseen ? " unseen" : ""}${emergencyUrgent ? " emergencyUrgent" : ""}`}
                       >
                         {/* An unseen report is marked by the dot on the clock,
                             not a badge: the row keeps one reading rhythm. */}
-                        <td data-label="Thời gian gửi"><span className="mdWhen">{unseen && !p3Urgent && <i className="mdNewDot" aria-hidden="true" />}{formatClock(ticket.created_at)}</span><small>{formatDay(ticket.created_at)}</small></td>
+                        <td data-label="Thời gian gửi"><span className="mdWhen">{unseen && !emergencyUrgent && <i className="mdNewDot" aria-hidden="true" />}{formatClock(ticket.created_at)}</span><small>{formatDay(ticket.created_at)}</small></td>
                         <td data-label="Vị trí">{ticket.location_label || "Chưa xác định"}</td>
                         <td data-label="Danh mục">{formatCategoryName(ticket.category)}</td>
                         <td data-label="Ưu tiên">{ticket.priority
@@ -184,7 +185,7 @@ export default function ManagerDashboard() {
                             technician is expected to *start*. The internal
                             completion estimate lives in the detail panel, and no
                             acceptance deadline exists any more. */}
-                        <td data-label="Bắt đầu dự kiến"><span className={atRisk ? "mdOverdue" : undefined}>{ticket.planned_start_at ? formatDateTime(ticket.planned_start_at) : "—"}{atRisk && !p3Urgent && <i className="mdRiskDot" aria-label="Lịch đang trễ" title="Lịch đang trễ so với cam kết" />}</span></td>
+                        <td data-label="Bắt đầu dự kiến"><span className={atRisk ? "mdOverdue" : undefined}>{ticket.planned_start_at ? formatDateTime(ticket.planned_start_at) : "—"}{atRisk && !emergencyUrgent && <i className="mdRiskDot" aria-label="Lịch đang trễ" title="Lịch đang trễ so với cam kết" />}</span></td>
                         <td data-label="KTV">{managerTechnician(ticket)}</td>
                       </tr>;
                     })}</tbody>
@@ -221,9 +222,9 @@ function managerTableStatusTone(status: string) {
 
 function managerTicketDisplayStatus(ticket: CoordinatorTicket) {
   // Checked before the generic manual-review label: an emergency waiting at
-  // the P3 gate is in MANUAL_REVIEW too, and "chờ duyệt thủ công" would send a
+  // the emergency gate is in MANUAL_REVIEW too, and "chờ duyệt thủ công" would send a
   // coordinator looking for a classification form that is not offered for it.
-  if (isP3ReviewPending(ticket)) return { label: P3_PENDING_LABEL, tone: "danger" };
+  if (isEmergencyReviewPending(ticket)) return { label: EMERGENCY_PENDING_LABEL, tone: "danger" };
   if (ticket.classification_status === "MANUAL_REVIEW") return { label: "Chờ duyệt thủ công", tone: "warning" };
   if (["PENDING", "PROCESSING"].includes(ticket.classification_status)) return { label: "Đang phân tích", tone: "processing" };
   if (ticket.status === "LINKED_DUPLICATE") return { label: "Đã gộp trùng", tone: "neutral" };
@@ -248,8 +249,7 @@ function managerTechnician(ticket: CoordinatorTicket) {
 }
 
 function managerTicketScore(ticket: CoordinatorTicket) {
-  if (ticket.score_total != null) return ticket.score_total;
-  if (ticket.red_flag_detected) return "Cờ đỏ";
+  if (ticket.risk_score != null) return formatRiskScore(ticket.risk_score);
   if (["PENDING", "PROCESSING", "MANUAL_REVIEW"].includes(ticket.classification_status)) return "Chờ tính";
   return "Chưa có";
 }

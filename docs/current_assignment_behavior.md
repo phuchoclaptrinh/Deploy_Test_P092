@@ -10,8 +10,8 @@ Một ticket chỉ được đưa vào luồng tự phân việc khi thỏa các
 - Agent đã phân loại xong: `classification_status = RESOLVED`.
 - Có `category_id` và `priority`.
 - Không phải ticket trùng.
-- Không phải priority `P3`.
-- Không đang chờ BQL duyệt P3.
+- Không phải priority `P5`.
+- Không đang chờ BQL duyệt mức khẩn cấp.
 - Chưa có assignment active.
 - Công tắc tự phân việc đang bật.
 
@@ -92,24 +92,25 @@ Ticket sẽ không được tự phân việc nếu:
 - Không có phương án khả thi.
 - Auto assignment bị tắt.
 - Ticket không còn đủ điều kiện tại thời điểm worker xử lý.
-- Ticket là P3 hoặc đang chờ duyệt P3.
+- Ticket là P5 hoặc đang chờ duyệt mức khẩn cấp.
 
 Các trường hợp này được đưa về BQL để xử lý thủ công.
 
-## Luồng P3
+## Luồng P5
 
-P3 không được tự phân việc.
+P5 không được phân việc — không tự động, và cũng không thủ công.
 
-Nếu Agent phát hiện P3, ticket phải chờ BQL xác nhận hoặc hạ mức.
+Nếu Agent chấm ra P5, hệ thống cảnh báo ngay, vẫn chạy tra trùng, rồi ticket chờ BQL xác nhận hoặc hạ mức.
 
-Sau khi BQL xác nhận P3:
+Sau khi BQL xác nhận P5:
 
 - Ticket được chuyển từ `NEW` sang `APPROVED`.
-- Giữ priority `P3`.
+- Giữ priority `P5`.
 - Ghi lịch sử trạng thái.
-- Mở khóa để BQL phân công thủ công.
+- **Không** mở khóa phân việc. Xác nhận khẩn cấp không phải là bước tiền đề để
+  giao cho kỹ thuật viên; nó chỉ ghi nhận rằng BQL đã đọc và đồng ý với mức.
 
-P3 vẫn không đi vào auto dispatch.
+P5 vẫn không đi vào auto dispatch, và cũng không lên bảng phân việc trực quan: Ban quản lý xử lý trực tiếp.
 
 ## Phân việc thủ công
 
@@ -118,7 +119,7 @@ BQL có thể phân công thủ công khi ticket đã được duyệt và chưa
 Backend vẫn kiểm tra:
 
 - Ticket có thể phân công.
-- Không đang chờ duyệt P3.
+- Không đang chờ duyệt mức khẩn cấp.
 - KTV tồn tại.
 - KTV active và available.
 - KTV có kỹ năng phù hợp.

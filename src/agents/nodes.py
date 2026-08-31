@@ -37,34 +37,78 @@ from src.agents.state import (
     advance_evidence_revision,
     category_is_confirmed,
     classification_settled,
+    criteria_complete,
+    prospective_priority,
 )
 from src.database.models.ai_agent_session import AIAgentQuestion
 from src.models.agent_schemas import (
     LOCATION_OPTIONS,
+    QUESTION_KIND_CRITERION,
     AgentAnalysisResult,
     AgentExitReason,
     AgentQuestionKind,
     AgentSearchPurpose,
-    AgentSeveritySource,
     AgentTicketRelation,
     AgentToolUsage,
     CandidateTicket,
     DuplicateVerdict,
+    RiskCriteriaPayload,
+    RiskEvidencePayload,
 )
 from src.models.api.errors import AGENT_BUDGET_EXHAUSTED, DomainError
-from src.models.enums import Severity
+from src.models.enums import Priority
 from src.services.agent_backend_service import AgentBackendService
 
 logger = logging.getLogger(__name__)
 
-#: Fixed answer sets. The model writes the question; Backend owns the options,
-#: so an answer always maps back onto something the system can act on rather
-#: than onto free prose it would have to interpret.
-SEVERITY_OPTIONS: dict[str, str] = {
-    "Nhẹ, chưa ảnh hưởng nhiều": Severity.LOW.value,
-    "Vừa, gây bất tiện rõ rệt": Severity.MEDIUM.value,
-    "Nặng, ảnh hưởng nghiêm trọng": Severity.HIGH.value,
+#: Fixed answer sets for the five targeted risk questions. The model writes the
+#: question; Backend owns the options, so an answer always maps back onto a
+#: 0-4 judgement rather than onto free prose somebody would have to interpret.
+#:
+#: One set per criterion, phrased as observations rather than as severity
+#: words. "How serious is it?" gets an answer about how upset the resident is;
+#: "is water still coming out right now?" gets an answer that moves exactly one
+#: number. The wording tracks the anchors in `docs/risk_scoring_v2.md` §3.
+CRITERION_ANSWER_OPTIONS: dict[str, dict[str, int]] = {
+    "human_safety": {
+        "Không ai có nguy cơ bị thương": 0,
+        "Chỉ nguy hiểm nếu vô tình chạm vào": 1,
+        "Có nguy hiểm nhưng tránh được": 2,
+        "Rất nguy hiểm, người thường khó tránh": 3,
+        "Đang đe doạ tính mạng hoặc đã có người bị thương": 4,
+    },
+    "property_spread": {
+        "Hỏng tại chỗ, không lan": 0,
+        "Lan chậm trong căn hộ, tính theo tuần": 1,
+        "Lan rõ trong căn hộ": 2,
+        "Đang lan sang căn khác hoặc khu vực chung": 3,
+        "Lan nhanh, diện rộng, không tự dừng": 4,
+    },
+    "essential_function": {
+        "Không ảnh hưởng điện, nước, vệ sinh, lối ra vào": 0,
+        "Vẫn dùng được nhưng kém hơn": 1,
+        "Mất một phần, còn cách dùng thay thế": 2,
+        "Mất hẳn một chức năng, không có cách thay thế": 3,
+        "Căn hộ không ở được": 4,
+    },
+    "affected_scope": {
+        "Chỉ căn hộ của tôi": 0,
+        "Hai căn": 1,
+        "Ba căn": 2,
+        "Bốn căn": 3,
+        "Từ năm căn trở lên": 4,
+    },
+    "deterioration_speed": {
+        "Để một tuần cũng như vậy": 0,
+        "Xấu đi theo tuần": 1,
+        "Xấu đi theo ngày": 2,
+        "Xấu đi theo giờ": 3,
+        "Xấu đi theo từng phút": 4,
+    },
 }
+
+#: The five question kinds that each pin down one criterion.
+CRITERION_QUESTION_KINDS = frozenset(member.value for member in QUESTION_KIND_CRITERION)
 
 # The two location answers come from the contract module: Backend has to
 # enforce what each one implies when the answer arrives, so both ends read the
@@ -167,8 +211,10 @@ class AgentNodes:
             return {
                 "understandable": False,
                 "category_id": None,
-                "severity": None,
-                "red_flag": False,
+                "criteria": None,
+                "blockers": [],
+                "evidence": {},
+                "unknown_facts": [],
                 "image_relevant": None,
                 "incident_facts": [],
                 "ai_reason": "Phản ánh không có mô tả và không có ảnh.",
@@ -213,9 +259,14 @@ class AgentNodes:
             "category_id": category_id,
             "text_category_id": text_category_id,
             "image_category_id": image_category_id,
-            "severity": result.severity,
-            "severity_source": ("IMAGE" if image_urls and result.image_relevant else "TEXT"),
-            "red_flag": result.red_flag,
+            "criteria": dict(result.criteria) if result.criteria else None,
+            # Codes for the state, which is what floors a priority and what
+            # gets stored; the evidence for each code travels in `evidence`.
+            "blockers": list(result.blocker_codes),
+            # `blockers` is a mapping of code to its own lines, so it is copied
+            # as-is rather than coerced into a list like the criterion keys.
+            "evidence": _copy_evidence(result.evidence),
+            "unknown_facts": list(result.unknown_facts or []),
             "ai_reason": result.ai_reason,
             "understandable": result.understandable,
             "image_relevant": result.image_relevant if image_urls else None,
@@ -267,11 +318,16 @@ class AgentNodes:
                 return None
             return {"kind": AgentQuestionKind.CATEGORY_CONFIRMATION.value, "text": text, "options": names}
 
-        if kind == "SEVERITY_CONFIRMATION":
+        if kind in CRITERION_QUESTION_KINDS:
+            # The model wrote the question; Backend owns the answers. Each
+            # option maps onto exactly one 0-4 anchor, so a resident tapping a
+            # button produces a score rather than a sentence somebody has to
+            # interpret back into one.
+            criterion = QUESTION_KIND_CRITERION[AgentQuestionKind(kind)]
             return {
-                "kind": AgentQuestionKind.SEVERITY_CONFIRMATION.value,
+                "kind": kind,
                 "text": text,
-                "options": list(SEVERITY_OPTIONS),
+                "options": list(CRITERION_ANSWER_OPTIONS[criterion]),
             }
 
         if kind == "LOCATION_CONFIRMATION":
@@ -302,14 +358,18 @@ class AgentNodes:
                 question_type="MULTIPLE_CHOICE" if options else "FREE_TEXT",
                 question_text=str(question["text"]),
                 options=options or None,
-                # A location is only ever re-picked from the fixed selector, and
-                # a recurrence answer is one of four fixed statements. Letting
-                # either be answered in prose would be inviting exactly the
-                # free-text inference this design rules out.
+                # A location is only ever re-picked from the fixed selector, a
+                # recurrence answer is one of four fixed statements, and a
+                # criterion answer has to land on one of five 0-4 anchors.
+                # Letting any of them be answered in prose would be inviting
+                # exactly the free-text inference this design rules out -- and
+                # for a criterion it would spend one of three questions on an
+                # answer that cannot move a score.
                 allow_free_text_fallback=kind
                 not in {
                     AgentQuestionKind.LOCATION_CONFIRMATION.value,
                     AgentQuestionKind.RECENT_COMPLETION.value,
+                    *CRITERION_QUESTION_KINDS,
                 },
             )
         except DomainError as exc:
@@ -381,11 +441,19 @@ class AgentNodes:
                 updates["confirmed_category_name"] = str(
                     payload.get("confirmed_category_name") or _category_name(str(chosen), state["catalog"])
                 )
-        elif kind == AgentQuestionKind.SEVERITY_CONFIRMATION.value:
-            severity = SEVERITY_OPTIONS.get(answer)
-            if severity:
-                updates["severity"] = severity
-                updates["severity_source"] = "TEXT"
+        elif kind in {member.value for member in QUESTION_KIND_CRITERION}:
+            criterion = QUESTION_KIND_CRITERION[AgentQuestionKind(kind)]
+            score = CRITERION_ANSWER_OPTIONS[criterion].get(answer)
+            if score is not None:
+                # One answer moves one number. The other four stay exactly as
+                # the model scored them: a resident answering about water spread
+                # has told us nothing new about whether anyone could be hurt.
+                criteria = dict(state.get("criteria") or {})
+                criteria[criterion] = score
+                updates["criteria"] = criteria
+                updates["unknown_facts"] = [
+                    name for name in (state.get("unknown_facts") or []) if name != criterion
+                ]
         elif kind == AgentQuestionKind.LOCATION_CONFIRMATION.value:
             payload = question.answer_payload or {}
             selected = payload.get("selected_location_id")
@@ -562,7 +630,6 @@ class AgentNodes:
         return {
             "description": state.get("description", ""),
             "category_name": _category_name(state.get("category_id"), state["catalog"]),
-            "severity": state.get("severity"),
             "location_id": state.get("location_id"),
             "location_label": state.get("location_label", ""),
             "floor_label": state.get("floor_label", ""),
@@ -593,7 +660,6 @@ class AgentNodes:
                 ticket_id=UUID(state["ticket_id"]),
                 analysis_session_id=UUID(state["session_id"]),
                 exit_reason=exit_reason,
-                red_flag=False,
                 ai_reason=self._insufficient_reason(state),
                 location_id=UUID(state["location_id"]) if state.get("location_id") else None,
                 tool_usage=usage,
@@ -602,8 +668,7 @@ class AgentNodes:
                 analyzed_at=self.clock(),
             )
 
-        severity = state.get("severity")
-        severity_source = state.get("severity_source")
+        criteria = state.get("criteria")
         return AgentAnalysisResult(
             ticket_id=UUID(state["ticket_id"]),
             analysis_session_id=UUID(state["session_id"]),
@@ -611,11 +676,10 @@ class AgentNodes:
             category_id=UUID(str(state["category_id"])) if state.get("category_id") else None,
             text_category_id=UUID(str(state["text_category_id"])) if state.get("text_category_id") else None,
             image_category_id=UUID(str(state["image_category_id"])) if state.get("image_category_id") else None,
-            severity=Severity(severity) if severity in {"LOW", "MEDIUM", "HIGH"} else None,
-            severity_source=(
-                AgentSeveritySource(severity_source) if severity in {"LOW", "MEDIUM", "HIGH"} and severity_source else None
-            ),
-            red_flag=bool(state.get("red_flag")),
+            criteria=RiskCriteriaPayload(**criteria) if criteria_complete(state) else None,
+            blockers=list(state.get("blockers") or []),
+            evidence=RiskEvidencePayload(**(state.get("evidence") or {})),
+            unknown_facts=list(state.get("unknown_facts") or []),
             ai_reason=state.get("ai_reason"),
             location_id=UUID(state["location_id"]) if state.get("location_id") else None,
             duplicate=duplicate,
@@ -648,18 +712,43 @@ class AgentNodes:
         logger.error("Agent aborting without a business exit: %s", failure)
         return {"exit_reason": None, "result": None}
 
-    def exit_red_flag(self, state: AgentState) -> dict[str, object]:
-        """Danger. Also a P3, so `finalize` parks it at the human gate."""
-        return self._emit(self._build_result(state, exit_reason=AgentExitReason.RED_FLAG))
+    def warn_emergency(self, state: AgentState) -> dict[str, object]:
+        """Tell Building Management now, before anything else runs.
 
-    def exit_p3_review(self, state: AgentState) -> dict[str, object]:
-        """The classification is finished and it scores P3.
+        The one node in this graph whose whole purpose is a side effect. It
+        writes the warning and then hands the round straight on to the duplicate
+        stage: `docs/risk_scoring_v2.md` §7 puts the warning *before* duplicate
+        retrieval, because waiting for a database round trip and a model call
+        before saying "there is smoke in the lobby" buys nothing.
 
-        No duplicate lookup has run and none will from here: the payload is
-        the classification and nothing else, and `finalize` hands the ticket
-        to a coordinator.
+        It is not the review item. The review item is written at finalize, and a
+        P5 that turns out to be a confident duplicate never gets one -- but it
+        still got this.
         """
-        return self._emit(self._build_result(state, exit_reason=AgentExitReason.P3_REVIEW_REQUIRED))
+        if state.get("emergency_warned"):
+            return {}
+        priority = prospective_priority(state)
+        try:
+            self.backend.raise_emergency_warning(
+                UUID(state["ticket_id"]),
+                priority=Priority(priority) if priority else Priority.P5,
+                ai_reason=state.get("ai_reason"),
+            )
+        except Exception as exc:  # pragma: no cover - defensive
+            # A failed warning must not swallow the emergency. The round keeps
+            # going and finalize still parks the ticket at the gate; the
+            # coordinator sees it there instead of in a notification.
+            logger.exception("Could not raise the emergency warning: %s", exc)
+        return {"emergency_warned": True}
+
+    def exit_emergency_review(self, state: AgentState) -> dict[str, object]:
+        """The classification is finished and it scores P5.
+
+        `finalize` raises the emergency warning and hands the ticket to a
+        coordinator. There is no separate danger exit any more: a fire is a
+        blocker code that floors the priority here, not a different terminal.
+        """
+        return self._emit(self._build_result(state, exit_reason=AgentExitReason.EMERGENCY_REVIEW_REQUIRED))
 
     def exit_duplicate_existing(self, state: AgentState) -> dict[str, object]:
         reason = (state.get("duplicate_reason") or "Cùng một sự cố đang được xử lý.")[:500]
@@ -684,6 +773,19 @@ class AgentNodes:
         return self._emit(self._build_result(state, exit_reason=AgentExitReason.INSUFFICIENT_INPUT))
 
 
+def _copy_evidence(evidence: dict[str, object] | None) -> dict[str, object]:
+    """A plain copy of the Agent's evidence object, one level deep.
+
+    `blockers` is a `{code: [lines]}` mapping and the five criterion keys are
+    lists, so a uniform `list(value)` would turn the mapping into a list of its
+    codes and drop every line of blocker evidence.
+    """
+    payload: dict[str, object] = {}
+    for key, value in (evidence or {}).items():
+        payload[key] = {code: list(lines) for code, lines in value.items()} if isinstance(value, dict) else list(value)
+    return payload
+
+
 def duplicate_stage_ready(state: AgentState) -> bool:
     """Whether the duplicate lookup may run yet."""
     return classification_settled(state) and not state.get("requested_question")
@@ -692,7 +794,7 @@ def duplicate_stage_ready(state: AgentState) -> bool:
 __all__ = [
     "RECENT_COMPLETION_OPTIONS",
     "RECENT_COMPLETION_QUESTION",
-    "SEVERITY_OPTIONS",
+    "CRITERION_ANSWER_OPTIONS",
     "AgentNodes",
     "duplicate_stage_ready",
 ]

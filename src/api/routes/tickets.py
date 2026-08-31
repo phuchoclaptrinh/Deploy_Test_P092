@@ -13,7 +13,7 @@ from src.api.dependencies.database import get_db
 from src.api.routes.storage import get_storage_service
 from src.database.models.attachment import TicketAttachment
 from src.database.models.ticket import Ticket
-from src.models.agent_schemas import P3ReviewStatus
+from src.models.agent_schemas import EmergencyReviewStatus
 from src.models.api.common import ApiResponse
 from src.models.api.tickets import (
     AgentQuestionAnswerRequest,
@@ -97,7 +97,7 @@ def _resident_actions(ticket: Ticket, viewer_user_id: UUID | None) -> list[str]:
     appeal action either - a linked duplicate is informational.
     """
     actions: list[str] = []
-    if _awaiting_p3_review(ticket):
+    if _awaiting_emergency_review(ticket):
         # A report held at the emergency gate is mid-decision. Cancelling it
         # from the app would change the outcome a coordinator is looking at.
         return actions
@@ -106,7 +106,7 @@ def _resident_actions(ticket: Ticket, viewer_user_id: UUID | None) -> list[str]:
     return actions
 
 
-def _awaiting_p3_review(ticket: Ticket) -> bool:
+def _awaiting_emergency_review(ticket: Ticket) -> bool:
     """Whether this report is waiting on the urgent-review gate.
 
     The resident is told, because "we are looking at this right now" is more
@@ -116,7 +116,7 @@ def _awaiting_p3_review(ticket: Ticket) -> bool:
     if not ticket.ai_analysis_runs:
         return False
     run = max(ticket.ai_analysis_runs, key=lambda item: item.run_number)
-    return run.p3_review_status == P3ReviewStatus.PENDING.value
+    return run.emergency_review_status == EmergencyReviewStatus.PENDING.value
 
 
 def _attachment_response(ticket_id: UUID, attachment: TicketAttachment) -> TicketAttachmentResponse:
@@ -186,7 +186,7 @@ def resident_ticket_response(ticket: Ticket, current_user_id: UUID | None = None
         display_status = resident_status_text(ticket.status)
     elif ticket.status == TicketStatus.LINKED_DUPLICATE:
         display_status = "Đã gộp phản ánh"
-    elif _awaiting_p3_review(ticket):
+    elif _awaiting_emergency_review(ticket):
         display_status = "Ban quản lý đang xử lý khẩn cấp"
     elif ticket.classification_status.value in {"PENDING", "PROCESSING"}:
         display_status = "Đang phân tích..."

@@ -12,6 +12,7 @@ from fastapi.responses import JSONResponse
 from src.api.openapi_responses import INTERNAL_SERVER_ERROR_RESPONSE
 from src.api.router import api_router
 from src.config import get_settings
+from src.database.schema_version import assert_schema_is_current
 from src.database.session import engine
 from src.models.api.errors import (
     DESCRIPTION_REQUIRED,
@@ -63,6 +64,11 @@ def openapi_tags() -> list[dict[str, str]]:
 async def lifespan(app: FastAPI):
     runtime = get_settings()
     runtime.validate_runtime_safety()
+    # Before anything serves a request. A schema behind the code breaks every
+    # write path already; the only question is whether that is discovered here,
+    # in a sentence, or as an UndefinedColumn under forty lines of traceback on
+    # whichever endpoint a user happened to open first.
+    assert_schema_is_current(engine)
     # Before the first request, and so before any provider client is built:
     # analysis runs as a background task off a request, and its LLM calls must
     # already be instrumented by then. A no-op without BRAINTRUST_API_KEY.

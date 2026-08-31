@@ -37,6 +37,7 @@ from src.config import get_settings
 from src.database.models.dispatch import DispatchEvent
 from src.database.models.ticket import Ticket
 from src.dispatch.enqueue import automatic_assignment_enabled, enqueue
+from src.domain.assignment_guard import ticket_assignment_allowed
 from src.models.enums import DispatchEventStatus
 from src.services.assignment_support import AssignmentSideEffects
 
@@ -65,10 +66,18 @@ def supersede_open_event(db: Session, ticket_id: UUID, *, now: datetime | None =
 
 
 def requeue_after_release(db: Session, ticket: Ticket, *, now: datetime | None = None) -> DispatchEvent | None:
-    """Put a released ticket back on the automatic path, if it belongs there."""
+    """Put a released ticket back on the automatic path, if it belongs there.
+
+    A P5 does not belong there, and it does not get paused for manual
+    attention either -- pausing announces "somebody should place this by
+    hand", which is the opposite of what an emergency needs. It simply leaves
+    the automatic path, silently, the way it was never on it.
+    """
     now = now or datetime.now(UTC)
     settings = get_settings()
 
+    if not ticket_assignment_allowed(ticket):
+        return None
     if ticket.reassignment_count > settings.assignment_reassignment_cap:
         _pause(db, ticket, REASSIGNMENT_CAP_REACHED)
         return None

@@ -66,7 +66,9 @@ def test_current_metadata_has_v3_tables_columns_and_active_assignment_constraint
     assert {"technician_profiles", "technician_skills", "ticket_assignments"} <= set(tables)
     assert {"completion_note", "completed_at", "assigned_by_user_id"} <= set(tables["ticket_assignments"].c.keys())
     assert {"technician_id", "category_id"} <= set(tables["technician_skills"].c.keys())
-    assert "base_score" in tables["categories"].c
+    # `base_score` was here. It is gone with the v1 scoring model: a category
+    # is a routing label now and contributes nothing to a priority.
+    assert "base_score" not in tables["categories"].c
     assert {"ai_analysis_sessions", "ai_agent_tool_calls", "ai_agent_questions"} <= set(tables)
     assert {"contract_version", "analysis_session_id", "exit_reason", "tool_usage"} <= set(tables["ai_analysis_runs"].c.keys())
 
@@ -82,6 +84,9 @@ def test_final_hardening_migration_adds_unit_uniqueness_and_technician_ticket_rl
     text = MIGRATION.read_text(encoding="utf-8")
 
     assert "uq_resident_profiles_unit_id" in text
+    # This revision added the constraint; `a1b2c3d4e5f7` drops it along with
+    # the column it guarded. Still asserted here because the assertion is
+    # about what *this* migration wrote, not about the current schema.
     assert "ck_categories_active_base_score_required" in text
     assert "rls_tickets_technician_select_assigned" in text
     assert "assignment.technician_id = (SELECT auth.uid())" in text

@@ -36,7 +36,7 @@ from src.repositories.attachment_repository import AttachmentRepository
 from src.repositories.catalog_repository import CatalogRepository
 from src.repositories.ticket_repository import TicketRepository
 from src.repositories.upload_session_repository import UploadSessionRepository
-from src.services.p3_review_guard import assert_p3_review_not_pending
+from src.services.emergency_review_guard import assert_emergency_review_not_pending
 from src.services.storage_service import StorageService
 from src.services.ticket_visibility import is_reporter
 
@@ -259,7 +259,7 @@ class TicketService:
             # An emergency being reviewed right now is not the resident's to
             # withdraw. `_resident_actions` hides the button; this is the
             # authorization behind it.
-            assert_p3_review_not_pending(self.db, ticket_id)
+            assert_emergency_review_not_pending(self.db, ticket_id)
             if ticket.status != TicketStatus.NEW:
                 raise DomainError(INVALID_STATUS_TRANSITION, "Chỉ có thể hủy ticket ở trạng thái Mới.", 409)
             old = ticket.status
@@ -318,7 +318,7 @@ class TicketService:
             ticket.priority = None
             ticket.severity = None
             ticket.red_flag_detected = False
-            ticket.score_total = None
+            ticket.risk_score = None
             ticket.sla_due_at = None
             ticket.version += 1
             self.tickets.append_status_history(

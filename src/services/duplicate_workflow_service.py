@@ -22,7 +22,7 @@ from src.models.api.errors import (
 from src.models.enums import TicketStatus
 from src.repositories.ticket_repository import TicketRepository
 from src.services.assignment_support import AssignmentSideEffects
-from src.services.p3_review_guard import assert_p3_review_not_pending
+from src.services.emergency_review_guard import assert_emergency_review_not_pending
 
 TERMINAL_TICKET_STATUSES = {
     TicketStatus.COMPLETED,
@@ -54,7 +54,7 @@ class DuplicateWorkflowService:
             # The gate sits in front of duplicate processing precisely so an
             # emergency is not folded into another ticket before a human has
             # looked at it. That holds for a manual link too.
-            assert_p3_review_not_pending(self.db, ticket_id)
+            assert_emergency_review_not_pending(self.db, ticket_id)
             master = self._locked_ticket(master_ticket_id)
             if ticket.status in TERMINAL_TICKET_STATUSES:
                 raise DomainError(INVALID_STATUS_TRANSITION, "Ticket này không thể liên kết duplicate.", 409)

@@ -1,5 +1,34 @@
 # Golden dataset V4 — 116 test case cụ thể
 
+> ## ⚠ Cần review lại toàn bộ theo rubric rủi ro v2
+>
+> **Trạng thái: `PENDING_HUMAN_REVIEW`, và bây giờ còn lệch cả hình dạng.**
+>
+> Bộ case này được thiết kế cho hợp đồng cũ: mỗi case có `severity`
+> (LOW/MEDIUM/HIGH) và `red_flag`. Cả hai đã bị xoá khỏi hệ. Hợp đồng hiện tại
+> ([`docs/risk_scoring_v2.md`](../../docs/risk_scoring_v2.md)) yêu cầu mỗi case
+> có **năm điểm tiêu chí 0–4**, danh sách **blocker**, và mức ưu tiên cuối cùng
+> do backend tính từ đó.
+>
+> **Không có bản chuyển đổi tự động, và đó là quyết định có chủ đích.** Không có
+> hàm nào đi từ `severity: MEDIUM` sang năm con số: chuyển đổi máy móc sẽ *bịa*
+> ra `human_safety`, `property_spread`, `essential_function`, `affected_scope`
+> và `deterioration_speed` cho 116 case, rồi mọi kết quả eval so với chúng sẽ là
+> đo lại chính những con số bịa đó. Một golden dataset sai mà trông có thẩm
+> quyền còn tệ hơn không có golden dataset.
+>
+> **Việc cần làm, và người làm là con người:**
+>
+> 1. Chạy `scripts/build_classification_golden_review_xlsx.py` — workbook đã đổi
+>    sang thu năm tiêu chí (dropdown 0–4) và blocker (dropdown 11 mã) thay cho
+>    severity/red flag.
+> 2. Chấm lại từng case theo anchor trong `docs/risk_scoring_v2.md` §3.
+> 3. Bổ sung kỳ vọng duplicate và grouping cho những case liên quan.
+> 4. Đổi `review_status` sang trạng thái đã duyệt khi xong.
+>
+> Đến khi bước đó hoàn tất, bộ này **không dùng để đánh giá agent v2 được**.
+
+
 Đây là bộ case cụ thể để đánh giá hành vi Analysis Agent V4 và Assignment Agent V4. Bộ này không dùng pairwise thuần; 115 case ban đầu được giữ theo năm cụm đã chốt và bổ sung một case để mọi Category trong catalog được nhận diện ít nhất một lần:
 
 | Cụm | Số case |
@@ -7,9 +36,7 @@
 | A1 — Nội dung, ảnh và Category | 36 |
 | A2 — Grouping và sự cố đang xử lý | 14 |
 | A3 — Red flag và tương tác Cư dân | 26 |
-| B1 — DIRECT | 20 |
-| B2 — PROPOSAL | 20 |
-| **Tổng** | **116** |
+
 
 ## Toàn bộ dimension ban đầu
 
@@ -67,26 +94,68 @@ Phần này giữ nguyên danh sách dimension đầu vào đã dùng khi thiế
 - Giọng khẩn cấp nhưng sự cố nhẹ
 - Giọng bình thường nhưng sự cố nghiêm trọng
 
-**Số Category trong text**
+**Category cuối cùng (`category`)**
 
-- Không xác định được
-- Một Category
-- Nhiều Category
+- Một Category trong catalog đang được ghim
+- Chưa chốt Category và hỏi `CATEGORY_CONFIRMATION`
+- Không có Category vì toàn bộ phản ánh không hiểu được
+- Không bắt buộc Category khi đã có `red_flag=true`
 
-**Số Category trong ảnh**
+Production hiện chỉ trả **một** Category cuối cùng. `text_category` và
+`image_category` là bằng chứng giải thích, không còn là hai danh sách multi-label
+để Backend lấy giao nhau.
 
-- Không có ảnh
-- Không xác định được
-- Một Category
-- Nhiều Category
+**Category từ chữ (`text_category`)**
 
-**Quan hệ Category giữa text và ảnh**
+- Không xác định được (`null`)
+- Một Category trong catalog đang được ghim
 
-- Chỉ có text
-- Có đúng một Category chung
-- Không có Category chung
-- Có nhiều Category chung
-- Không đủ dữ liệu so sánh
+**Category từ ảnh (`image_category`)**
+
+- Không có ảnh (`null`)
+- Ảnh không đủ bằng chứng Category (`null`)
+- Một Category trong catalog đang được ghim
+
+**Quan hệ giữa bằng chứng chữ, ảnh và kết luận**
+
+- Chỉ có bằng chứng từ chữ
+- Chỉ có bằng chứng từ ảnh
+- Chữ và ảnh cùng gợi ý một Category
+- Chữ và ảnh gợi ý hai Category khác nhau, cần hỏi Cư dân chọn vấn đề cần xử lý
+- Một nguồn không đủ bằng chứng nhưng nguồn còn lại đủ để chốt
+- Cư dân đã chọn Category; Agent phải giữ nguyên Category đó dù nguồn còn lại gợi ý vấn đề khác
+
+**Trạng thái quyết định (`question_kind`)**
+
+- `NONE`
+- `CATEGORY_CONFIRMATION`
+- `SEVERITY_CONFIRMATION`
+- `LOCATION_CONFIRMATION`
+
+**Tính nhất quán vị trí (`location_consistent`)**
+
+- Khớp vị trí Cư dân đã chọn
+- Không khớp và phải hỏi `LOCATION_CONFIRMATION`
+
+**Snapshot Category mặc định của bộ draft hiện tại**
+
+Snapshot dưới đây lấy từ `src.models.enums.Category` và migration
+`5a6b7c8d9e0f_single_building_catalog.py`. Khi BQL thay đổi catalog, dataset phải
+ghim snapshot mới; không được để model dùng danh sách cũ.
+
+| Code | Tên gửi cho model |
+| --- | --- |
+| `WATER` | Nước |
+| `WALL_DAMP` | Thấm tường |
+| `ELEVATOR` | Thang máy |
+| `POWER_OUTAGE` | Mất điện |
+| `SECURITY_SAFETY` | An ninh / An toàn |
+| `NOISE` | Ồn ào |
+| `LOCK_DOOR` | Khóa / cửa |
+| `HVAC` | Điều hòa |
+| `ODOR_HYGIENE` | Mùi / vệ sinh |
+| `INTERNET_TV` | Internet / truyền hình |
+| `COMMON_AREA_DAMAGE` | Hư hỏng khu vực chung |
 
 **Loại vấn đề**
 
@@ -131,65 +200,10 @@ Phần này giữ nguyên danh sách dimension đầu vào đã dùng khi thiế
 - Bổ sung dấu hiệu nguy hiểm
 - Vẫn không đủ thông tin
 
-### DIRECT
-
-**Lý do gọi**
-
-- Phân việc lần đầu
-
-**Tổng số ticket riêng biệt**
-
-- `0+`
-- `20`
-- `21`
-
-`0+` là một số dương cụ thể đại diện cho miền lớn hơn 0; golden row phải chứa một số nguyên cụ thể, không chứa nguyên văn chuỗi `0+` trong request gửi model.
-
-**Thành phần yêu cầu**
-
-- Chỉ ticket đơn
-- Chỉ cụm sự cố
-- Có cả hai
-
-**Số Kỹ thuật viên ứng viên hoạt động và cùng chuyên môn**
-
-- `0`
-- `>0`
-
-**Quá trình gọi mô hình**
-
-- Không gọi được mô hình 1
-- Không gọi được mô hình 2
-- Không gọi được cả hai mô hình
-
-### PROPOSAL
-
-**Lý do gọi**
-
-- Phân lại do Kỹ thuật viên từ chối
-- Phân lại do Kỹ thuật viên không nhận việc đúng hạn
-
-**Thành phần yêu cầu**
-
-- Ticket đơn
-- Cụm sự cố
-
-**Số Kỹ thuật viên ứng viên hoạt động và cùng chuyên môn**
-
-- `0`
-- `>0`
-
-**Quá trình gọi mô hình**
-
-- Không gọi được mô hình 1
-- Không gọi được mô hình 2
-- Không gọi được cả hai mô hình
 
 ## Phân dimension vào năm cụm
 
 ### 1. Agent — Nội dung, ảnh và Category
-
-Các dimension:
 
 - Mức độ dễ hiểu:
   - Rõ ràng
@@ -203,9 +217,9 @@ Các dimension:
   - Không lỗi
   - Một loại lỗi
   - Nhiều loại lỗi
-- Số vấn đề trong text:
+- Số vấn đề Cư dân mô tả:
   - Một vấn đề
-  - Nhiều vấn đề
+  - Nhiều vấn đề; Agent phải hỏi Cư dân chọn đúng một vấn đề cho ticket
 - Trạng thái ảnh:
   - Không có ảnh
   - Ảnh rõ và liên quan
@@ -219,33 +233,46 @@ Các dimension:
   - Phù hợp
   - Giọng khẩn cấp nhưng sự cố nhẹ
   - Giọng bình thường nhưng sự cố nghiêm trọng
-- Số Category trong text:
-  - Không xác định được
-  - Một Category
-  - Nhiều Category
-- Số Category trong ảnh:
-  - Không có ảnh
-  - Không xác định được
-  - Một Category
-  - Nhiều Category
-- Quan hệ Category giữa text và ảnh:
-  - Chỉ có text
-  - Có đúng một Category chung
-  - Không có Category chung
-  - Có nhiều Category chung
-  - Không đủ dữ liệu so sánh
+- Quan hệ bằng chứng:
+  - Chỉ text
+  - Chỉ ảnh
+  - Text và ảnh cùng Category
+  - Text và ảnh khác Category
+  - Một nguồn không xác định được
+- `question_kind`:
+  - `NONE`
+  - `CATEGORY_CONFIRMATION`
+  - `SEVERITY_CONFIRMATION`
+  - `LOCATION_CONFIRMATION`
+- `location_consistent`:
+  - `true`
+  - `false`
+- Category đã được Cư dân xác nhận:
+  - Không có
+  - Có; `category` phải giữ nguyên và không được hỏi lại `CATEGORY_CONFIRMATION`
 
 Constraint chính:
 
-- Nếu `Trạng thái ảnh = Không có ảnh`:
-  - `Số Category trong ảnh = Không có ảnh`.
-  - `Quan hệ Category giữa text và ảnh = Chỉ có text`.
-- Nếu `Trạng thái ảnh = Ảnh mờ` hoặc `Ảnh không liên quan`:
-  - `Số Category trong ảnh = Không xác định được`.
-  - `Quan hệ Category giữa text và ảnh = Không đủ dữ liệu so sánh`.
-- Nếu `Quan hệ Category giữa text và ảnh = Có nhiều Category chung` thì text và ảnh đều phải có `Nhiều Category`.
+- Không có ảnh thì `image_category = null` và `image_relevant = null`.
+- Có ảnh thì `image_relevant` phải là boolean; ảnh không liên quan hoặc không đủ
+  bằng chứng không được ép thành một Category.
+- `category`, `text_category`, `image_category` và `category_options` chỉ được chứa
+  tên đúng nguyên văn từ catalog đã ghim.
+- `CATEGORY_CONFIRMATION` phải có `question_text` và từ 2 đến 4
+  `category_options` khác nhau; các `question_kind` khác không được có options.
+- `SEVERITY_CONFIRMATION` bắt buộc `severity = null`.
+- `red_flag = true` bắt buộc có `severity`, nhưng không bắt buộc Category.
+- Nếu `question_kind = NONE`, phản ánh hiểu được và không phải red flag thì
+  `category` và `severity` đều bắt buộc.
+- Nếu đã có Category Cư dân xác nhận thì `category` phải giữ nguyên giá trị đó và
+  `question_kind` không được là `CATEGORY_CONFIRMATION`.
+- `incident_facts` chỉ chứa điều quan sát được; `ai_reason` phải dẫn bằng chứng cụ
+  thể, không chỉ lặp lại tên Category.
 
-Mỗi golden row phải đủ dữ liệu để tạo text, đặc tả ảnh nếu có, kết quả extraction và expected Category handling.
+Mỗi golden row phải chứa đúng input production (`description`, ảnh, vị trí, lịch sử
+hỏi đáp, Category đã xác nhận và catalog ghim) cùng một `expected_output` hợp lệ với
+`UnifiedClassification`. Các nhãn sinh tự động mang `PENDING_REVIEW`; chỉ được gọi
+là golden chính thức sau khi người duyệt chốt.
 
 ### 2. Agent — Grouping và sự cố đang xử lý
 

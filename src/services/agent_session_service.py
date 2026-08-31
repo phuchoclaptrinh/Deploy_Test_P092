@@ -19,14 +19,13 @@ from src.database.models.ai_agent_session import AIAnalysisSession
 from src.database.models.ai_analysis import AIAnalysisRun
 from src.models.agent_schemas import ANALYSIS_CONTRACT_VERSION, CategoryCatalogToolResponse
 from src.models.api.errors import (
-    CATEGORY_REQUIRED,
     INVALID_STATUS_TRANSITION,
     TICKET_NOT_FOUND,
     DomainError,
 )
 from src.models.enums import AnalysisRunStatus, ClassificationStatus, InvalidReason
 from src.services.agent_common import AgentServiceBase
-from src.services.p3_review_guard import assert_p3_review_not_pending
+from src.services.emergency_review_guard import assert_emergency_review_not_pending
 
 
 class AgentSessionService(AgentServiceBase):
@@ -34,7 +33,7 @@ class AgentSessionService(AgentServiceBase):
         # Re-analysing a ticket held at the emergency gate would let the retry
         # action decide the question the gate is asking. A downgrade clears the
         # gate before it resumes, so the legitimate continuation still passes.
-        assert_p3_review_not_pending(self.db, ticket_id)
+        assert_emergency_review_not_pending(self.db, ticket_id)
         ticket = self._ticket(ticket_id)
         session = AIAnalysisSession(
             ticket_id=ticket.id,
@@ -63,8 +62,6 @@ class AgentSessionService(AgentServiceBase):
                     {
                         "category_id": item["category_id"],
                         "display_name": item["display_name"],
-                        "priority_ceiling": item["priority_ceiling"],
-                        "base_score": item["base_score"],
                     }
                     for item in session.category_catalog_snapshot
                 ],
@@ -73,12 +70,6 @@ class AgentSessionService(AgentServiceBase):
         rows = self.catalog.list_categories()
         snapshot: list[dict[str, object]] = []
         for row in sorted(rows, key=lambda item: str(item.id)):
-            if row.base_score is None:
-                raise DomainError(
-                    CATEGORY_REQUIRED,
-                    "Active Category requires base_score.",
-                    409,
-                )
             snapshot.append(
                 {
                     "category_id": str(row.id),
@@ -86,12 +77,6 @@ class AgentSessionService(AgentServiceBase):
                     # from CategoryCatalogToolResponse.
                     "code": row.code.value if hasattr(row.code, "value") else row.code,
                     "display_name": row.display_name,
-                    "priority_ceiling": (
-                        row.priority_ceiling.value
-                        if row.priority_ceiling
-                        else "UNLIMITED"
-                    ),
-                    "base_score": int(row.base_score),
                 }
             )
 
@@ -114,8 +99,6 @@ class AgentSessionService(AgentServiceBase):
                 {
                     "category_id": item["category_id"],
                     "display_name": item["display_name"],
-                    "priority_ceiling": item["priority_ceiling"],
-                    "base_score": item["base_score"],
                 }
                 for item in snapshot
             ],
@@ -128,6 +111,14 @@ class AgentSessionService(AgentServiceBase):
         carries the error code, so the coordinator panel can show "the analysis
         errored" rather than a business conclusion nobody reached, and
         `retry_analysis` has something to supersede.
+
+        `reason` carries the technical detail -- driver messages, SQL, whatever
+        the exception said -- so it goes to the audit trail and the log, and
+        nowhere else. It must not be written to `ai_reason`: that field is the
+        Agent's business explanation, management reads it as one, and a run that
+        failed technically never produced such an explanation. Filling it with a
+        stack trace put SQL and UUIDs on screen under the heading "Ghi chú phân
+        tích của AI", which reads as a classification rather than an outage.
         """
         session = self._session(session_id, lock=True)
         if session.status != "RUNNING":
@@ -153,7 +144,8 @@ class AgentSessionService(AgentServiceBase):
                 analysis_session_id=session.id,
                 status=AnalysisRunStatus.FAILED,
                 error_code=error_code,
-                ai_reason=reason,
+                # Deliberately not `reason` -- see the docstring.
+                ai_reason=None,
                 contract_version=ANALYSIS_CONTRACT_VERSION,
                 model_version=session.model_version,
                 category_catalog_version=session.category_catalog_version,
@@ -190,7 +182,7 @@ class AgentSessionService(AgentServiceBase):
         # An emergency waiting at the P3 gate is also in MANUAL_REVIEW, and
         # rejecting one outright is the most destructive thing this form can
         # do to it. Confirming or downgrading is the decision to take.
-        assert_p3_review_not_pending(self.db, ticket_id)
+        assert_emergency_review_not_pending(self.db, ticket_id)
         ticket = self._ticket(ticket_id)
         if ticket.classification_status != ClassificationStatus.MANUAL_REVIEW:
             raise DomainError(

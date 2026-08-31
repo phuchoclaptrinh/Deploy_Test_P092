@@ -2,11 +2,12 @@
 
     classify
       -> abort_technical          the model could not satisfy its own schema
-      -> exit_red_flag            danger beats everything, including duplicate
       -> exit_insufficient        the report cannot be understood
-      -> ask_prepare              a Category / severity / location confirmation
-      -> exit_p3_review           the ticket scores P3: a human decides first
-      -> search_duplicates        Category, severity and location are settled
+      -> ask_prepare              a Category / criterion / location confirmation
+      -> warn_emergency           the ticket scores P5: warn, then keep going
+      -> search_duplicates        Category, criteria and location are settled
+
+    warn_emergency -> search_duplicates | judge_duplicate | exit_emergency_review
       -> judge_duplicate          a valid snapshot is already in hand
       -> exit_limit               the budget ran out mid-conversation
 
@@ -24,12 +25,27 @@ There is no model call whose job is to pick the next step: routing is
 deterministic, which is both one less round trip per round and one less thing
 that can answer unpredictably.
 
-The P3 check runs after every classification pass, including the ones caused
-by a resident answer, and it runs *before* the duplicate stage. P3 is the
-five-minute-SLA priority: correlating an emergency with other tickets is not
-worth the minutes it costs, so the round stops and a coordinator either
-confirms the emergency or downgrades it. A downgrade re-enters this same graph
-at `search_duplicates` -- see `service.resume_after_p3_downgrade`.
+The emergency check runs after every classification pass, including the ones
+caused by a resident answer. P5 is the five-minute-SLA priority, and it takes a
+path of its own: the warning is raised immediately, and *then* the round runs the
+duplicate stage. Only grouping is skipped.
+
+That ordering is deliberate and it is the reverse of v1, which stopped a P3 dead
+before duplicate retrieval to save the minutes it costs. The minutes are now
+spent after the alarm rather than before it, which costs the coordinator nothing
+and answers the question that actually matters: is this the fourth person
+reporting the fire we already know about, or a second fire? A confident duplicate
+links to its master and pulls the master up to P5; anything less certain leaves
+the ticket standing on its own at the gate. `docs/risk_scoring_v2.md` §7.1.
+
+A downgrade re-enters this same graph at `search_duplicates` -- see
+`service.resume_after_emergency_downgrade`.
+
+There is no separate danger terminal any more. `exit_red_flag` existed because
+v1 answered danger with a priority that bypassed scoring entirely; in v2 a fire
+is the blocker code `FIRE_OR_SMOKE`, which floors the priority at P5 through the
+same calculator every other ticket goes through and lands on the same exit. One
+emergency path, not two.
 
 Grouping is absent by design. It is a background stage that runs only after
 duplicate processing is final and the resident has already been notified --
@@ -57,10 +73,10 @@ from src.agents.state import (
     ask_budget_available,
     budget_actually_spent,
     duplicate_candidates_valid,
+    emergency_review_required,
     has_technical_failure,
     input_insufficient,
     needs_duplicate_search,
-    p3_review_required,
 )
 from src.agents.trace import NullTracer, Tracer
 from src.agents.tracing import TracingLLMClient, traced_node, traced_router
@@ -71,9 +87,6 @@ _CHECKPOINTER = MemorySaver()
 def _route_after_classify(state: AgentState) -> str:
     if has_technical_failure(state):
         return "abort_technical"
-    # Danger stops every lookup, so it is checked before anything is searched.
-    if state.get("red_flag"):
-        return "exit_red_flag"
     if input_insufficient(state):
         return "exit_insufficient"
     if state.get("requested_question"):
@@ -82,11 +95,11 @@ def _route_after_classify(state: AgentState) -> str:
         # There is a question worth asking and no budget left to ask it. That
         # is what LIMIT_REACHED means; a coordinator finishes the job.
         return "exit_limit"
-    if p3_review_required(state):
-        # Everything downstream -- retrieval, judgement, grouping, publication
-        # -- waits for a human. Checked here rather than at persistence time
-        # so no duplicate lookup is spent on a ticket that is about to stop.
-        return "exit_p3_review"
+    if emergency_review_required(state) and not state.get("emergency_warned"):
+        # Warn first, then carry on into the duplicate stage. Checked here
+        # rather than at persistence time so the alarm does not wait for the
+        # rest of the round.
+        return "warn_emergency"
     if not duplicate_stage_ready(state):
         # A safety net rather than a path the model can take: the
         # classification contract already refuses a readable report that
@@ -102,6 +115,24 @@ def _route_after_classify(state: AgentState) -> str:
         # move the evidence: re-judge them rather than paying for a new lookup.
         return "judge_duplicate"
     return "exit_analysis_complete"
+
+
+def _route_after_warn_emergency(state: AgentState) -> str:
+    """Straight into the duplicate stage, or to the gate if it cannot run.
+
+    Deliberately not `ask_prepare`: the alarm has been raised, and holding an
+    emergency open for three minutes waiting on a clarification is not a
+    trade anybody would make. Whatever is missing, a coordinator settles it.
+    """
+    if has_technical_failure(state):
+        return "abort_technical"
+    if not duplicate_stage_ready(state):
+        return "exit_emergency_review"
+    if needs_duplicate_search(state):
+        return "search_duplicates"
+    if duplicate_candidates_valid(state):
+        return "judge_duplicate"
+    return "exit_emergency_review"
 
 
 def _route_after_search(state: AgentState) -> str:
@@ -120,9 +151,27 @@ def _route_after_judgement(state: AgentState) -> str:
         # settle it is missing. Auto-linking on a just-closed ticket without it
         # is exactly what the rule exists to prevent.
         return "exit_duplicate_uncertain"
+    return _duplicate_outcome(state)
+
+
+def _duplicate_outcome(state: AgentState) -> str:
+    """Where a settled duplicate verdict goes, emergency or not.
+
+    Shared by the judgement router and the recurrence router because the two
+    reach the same three conclusions and drifting apart is how one of them ends
+    up publishing an emergency.
+
+    For a P5 the only verdict that changes the destination is a confident
+    match: it links to the master, which is then pulled up to P5 as well.
+    Uncertain and different both leave the ticket standing on its own at the
+    gate -- an emergency nobody is sure about is still an emergency.
+    """
     verdict = state.get("duplicate_verdict")
+    emergency = emergency_review_required(state)
     if verdict == "SAME_INCIDENT" and state.get("duplicate_master_ticket_id"):
         return "exit_duplicate_existing"
+    if emergency:
+        return "exit_emergency_review"
     if verdict == "UNCERTAIN":
         return "exit_duplicate_uncertain"
     return "exit_analysis_complete"
@@ -147,17 +196,11 @@ def _route_after_ask_finalize(state: AgentState) -> str:
 
 
 def _route_after_recent_completion(state: AgentState) -> str:
-    verdict = state.get("duplicate_verdict")
-    if verdict == "SAME_INCIDENT" and state.get("duplicate_master_ticket_id"):
-        return "exit_duplicate_existing"
-    if verdict == "UNCERTAIN":
-        return "exit_duplicate_uncertain"
-    return "exit_analysis_complete"
+    return _duplicate_outcome(state)
 
 
 _TERMINALS = (
-    "exit_red_flag",
-    "exit_p3_review",
+    "exit_emergency_review",
     "exit_duplicate_existing",
     "exit_duplicate_uncertain",
     "exit_analysis_complete",
@@ -205,8 +248,8 @@ def build_graph(
     add("judge_duplicate", nodes.judge_duplicate)
     add("ask_recent_completion", nodes.ask_recent_completion)
     add("settle_recent_completion", nodes.settle_recent_completion)
-    add("exit_red_flag", nodes.exit_red_flag)
-    add("exit_p3_review", nodes.exit_p3_review)
+    add("warn_emergency", nodes.warn_emergency)
+    add("exit_emergency_review", nodes.exit_emergency_review)
     add("exit_duplicate_existing", nodes.exit_duplicate_existing)
     add("exit_duplicate_uncertain", nodes.exit_duplicate_uncertain)
     add("exit_analysis_complete", nodes.exit_analysis_complete)
@@ -220,8 +263,7 @@ def build_graph(
         route("route_after_classify", _route_after_classify),
         [
             "abort_technical",
-            "exit_red_flag",
-            "exit_p3_review",
+            "warn_emergency",
             "exit_insufficient",
             "exit_limit",
             "ask_prepare",
@@ -229,6 +271,11 @@ def build_graph(
             "judge_duplicate",
             "exit_analysis_complete",
         ],
+    )
+    graph.add_conditional_edges(
+        "warn_emergency",
+        route("route_after_warn_emergency", _route_after_warn_emergency),
+        ["abort_technical", "search_duplicates", "judge_duplicate", "exit_emergency_review"],
     )
     graph.add_conditional_edges(
         "search_duplicates",
@@ -242,6 +289,7 @@ def build_graph(
             "ask_recent_completion",
             "exit_duplicate_existing",
             "exit_duplicate_uncertain",
+            "exit_emergency_review",
             "exit_analysis_complete",
             "abort_technical",
         ],
@@ -261,7 +309,7 @@ def build_graph(
     graph.add_conditional_edges(
         "settle_recent_completion",
         route("route_after_recent_completion", _route_after_recent_completion),
-        ["exit_duplicate_existing", "exit_duplicate_uncertain", "exit_analysis_complete"],
+        ["exit_duplicate_existing", "exit_duplicate_uncertain", "exit_emergency_review", "exit_analysis_complete"],
     )
 
     for terminal in _TERMINALS:

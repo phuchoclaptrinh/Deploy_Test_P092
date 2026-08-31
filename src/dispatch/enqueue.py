@@ -42,8 +42,9 @@ from src.database.models.dispatch import DispatchEvent
 from src.database.models.ticket import Ticket
 from src.database.models.ticket_assignment import TicketAssignment
 from src.dispatch.shift import as_utc
-from src.models.enums import ClassificationStatus, DispatchEventStatus, Priority, TicketStatus
-from src.services.p3_review_guard import p3_review_is_pending
+from src.domain.assignment_guard import EMERGENCY_PRIORITY, ticket_assignment_allowed
+from src.models.enums import ClassificationStatus, DispatchEventStatus, TicketStatus
+from src.services.emergency_review_guard import emergency_review_is_pending
 
 logger = logging.getLogger(__name__)
 
@@ -63,15 +64,15 @@ def ticket_is_dispatchable(db: Session, ticket: Ticket) -> bool:
       priority. `MANUAL_REVIEW`, `PENDING`, `PROCESSING` and `FAILED` all mean
       no classification the system may act on;
     * the ticket must not be a duplicate;
-    * the ticket must not be P3, the emergency priority, which §2 and §3 both
-      say is always Building Management's;
+    * the ticket must not be P5, the emergency priority, which
+      `docs/risk_scoring_v2.md` §8 says is always Building Management's;
     * and it must actually be approved and unassigned, or there is nothing to
       dispatch.
 
-    The P3 emergency gate is checked separately from the priority: a ticket
-    still parked at that gate has no settled priority yet, and treating "not
-    yet P3" as "not P3" would let an emergency slip into the automatic path
-    during the window a human is deciding.
+    The emergency gate is checked separately from the priority: a ticket still
+    parked at that gate has no settled priority yet, and treating "not yet P5"
+    as "not P5" would let an emergency slip into the automatic path during the
+    window a human is deciding.
     """
     if ticket.status is not TicketStatus.APPROVED:
         return False
@@ -81,9 +82,9 @@ def ticket_is_dispatchable(db: Session, ticket: Ticket) -> bool:
         return False
     if ticket.duplicate_of_ticket_id is not None:
         return False
-    if ticket.priority is Priority.P3:
+    if not ticket_assignment_allowed(ticket):
         return False
-    if p3_review_is_pending(db, ticket.id):
+    if emergency_review_is_pending(db, ticket.id):
         return False
     return not _has_active_assignment(db, ticket.id)
 
@@ -134,7 +135,7 @@ def enqueue(db: Session, ticket: Ticket, *, now: datetime | None = None) -> Disp
         priority=ticket.priority.value,
         category_id=ticket.category_id,
         ticket_submitted_at=as_utc(ticket.created_at) or now,
-        score_total=float(ticket.score_total) if ticket.score_total is not None else None,
+        score_total=float(ticket.risk_score) if ticket.risk_score is not None else None,
         enqueued_at=now,
         available_at=now,
     )
@@ -187,7 +188,7 @@ def enqueue_backlog(db: Session, *, now: datetime | None = None, limit: int = 20
             Ticket.classification_status == ClassificationStatus.RESOLVED,
             Ticket.category_id.is_not(None),
             Ticket.priority.is_not(None),
-            Ticket.priority != Priority.P3,
+            Ticket.priority != EMERGENCY_PRIORITY,
             Ticket.duplicate_of_ticket_id.is_(None),
             ~open_event,
             ~active_assignment,

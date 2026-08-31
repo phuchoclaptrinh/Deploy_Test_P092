@@ -1,6 +1,13 @@
-"""Coordinator scoring, reporting, and side-effect helpers."""
+"""Coordinator SLA, reporting, and side-effect helpers.
 
-from datetime import UTC, datetime, timedelta
+`apply_scoring` is gone. A category no longer carries a base score, a location
+no longer carries a bonus, and there is no severity to weigh -- so there is
+nothing here that could decide a priority, and the ticket's priority is written
+only by `RiskAssessmentService.record`. What is left is the deadline that
+follows from a priority somebody else already decided.
+"""
+
+from datetime import UTC, datetime
 from uuid import UUID
 
 from sqlalchemy import func, select
@@ -8,68 +15,33 @@ from sqlalchemy.orm import Session
 
 from src.database.models.audit_log import AuditLog
 from src.database.models.category import CategoryCatalog
-from src.database.models.floor import Floor
-from src.database.models.location import Location
 from src.database.models.notification import Notification
 from src.database.models.resident_profile import ResidentProfile
 from src.database.models.ticket import Ticket
-from src.models.api.errors import CATEGORY_REQUIRED, DomainError
-from src.models.enums import Category, NotificationChannel, NotificationStatus, TicketStatus
+from src.database.models.ticket_assignment import TicketAssignment
+from src.domain.sla_clock import counts_toward_compliance
+from src.models.enums import NotificationChannel, NotificationStatus, TicketStatus
 from src.request_context import request_id_context
-from src.services.scoring_service import ScoringService
+from src.services.risk_assessment_service import RiskAssessmentService
+
+#: A ticket in one of these is still somebody's to do, so a passed deadline on
+#: it is a violation rather than history.
+_OPEN_STATUSES = frozenset({TicketStatus.APPROVED, TicketStatus.IN_PROGRESS})
+
+
+def _as_utc(value: datetime) -> datetime:
+    return value if value.tzinfo else value.replace(tzinfo=UTC)
 
 
 class CoordinatorScoringSupport:
-    def __init__(self, db: Session, scoring: ScoringService) -> None:
-        self.db = db
-        self.scoring = scoring
+    """The deadline half of scoring. Delegates so there is one SLA rule."""
 
-    def apply_scoring(self, ticket: Ticket, category: CategoryCatalog) -> None:
-        location = ticket.location
-        if category.is_active and category.base_score is None:
-            raise DomainError(
-                CATEGORY_REQUIRED,
-                "Category does not have a valid scoring configuration.",
-                409,
-            )
-        result = self.scoring.calculate_dynamic(
-            category_code=category.code,
-            base_score=category.base_score,
-            severity=ticket.severity,
-            location_type_code=location.location_type.code if location else None,
-            density_count=self._density_count(ticket, category),
-            red_flag_detected=ticket.red_flag_detected,
-            priority_ceiling=category.priority_ceiling,
-        )
-        ticket.score_total = result.score_total
-        ticket.priority = result.priority_final
-        self.recalculate_sla(ticket)
+    def __init__(self, db: Session) -> None:
+        self.db = db
+        self.risk = RiskAssessmentService(db)
 
     def recalculate_sla(self, ticket: Ticket) -> None:
-        if ticket.priority is None:
-            ticket.sla_due_at = None
-            return
-        started = ticket.sla_started_at or ticket.created_at
-        ticket.sla_started_at = started
-        ticket.sla_due_at = started + self.scoring.sla_duration[ticket.priority]
-
-    def _density_count(self, ticket: Ticket, category: CategoryCatalog) -> int:
-        if category.code != Category.WATER.value or ticket.location is None:
-            return 1
-        current_floor = ticket.location.floor
-        window_start = ticket.created_at - timedelta(days=3)
-        query = (
-            select(func.count(func.distinct(Ticket.source_unit_id)))
-            .join(Location, Location.id == Ticket.location_id)
-            .join(CategoryCatalog, CategoryCatalog.id == Ticket.category_id)
-            .join(Floor, Floor.id == Location.floor_id)
-            .where(
-                CategoryCatalog.code == category.code,
-                Ticket.created_at >= window_start,
-                Floor.adjacency_index.between(current_floor.adjacency_index - 1, current_floor.adjacency_index + 1),
-            )
-        )
-        return max(1, int(self.db.scalar(query) or 0))
+        self.risk.recalculate_sla(ticket)
 
 
 class CoordinatorSideEffects:
@@ -174,7 +146,64 @@ class CoordinatorReadService:
         }
 
     def sla_performance(self) -> dict[str, object]:
-        completed = list(self.db.scalars(select(Ticket).where(Ticket.status == TicketStatus.COMPLETED, Ticket.completed_at.is_not(None))))
-        on_time = sum(1 for ticket in completed if ticket.sla_due_at and ticket.completed_at <= ticket.sla_due_at)
-        total = len(completed)
-        return {"completed_total": total, "completed_on_time": on_time, "compliance_rate": (on_time / total) if total else None}
+        """Did somebody *start* in time, and is anything still overdue.
+
+        Three deliberate choices, all from `docs/risk_scoring_v2.md` §6:
+
+        **Measured at `started_at`, not `completed_at`.** What Building
+        Management promises a resident, and the only thing dispatch controls,
+        is that somebody arrives. How long the repair then takes is a property
+        of the fault, and judging the promise on it makes a difficult job look
+        like a broken process.
+
+        **P5 is reported separately, not counted.** An emergency is handled by
+        hand and never dispatched, so scoring it as a technician's pass or
+        failure would put a number nobody earned in the denominator.
+
+        **An open ticket past its deadline is already a violation.** Counting
+        only finished work would let the worst cases -- the ones nobody has
+        started at all -- improve the number by staying unfinished.
+        """
+        now = datetime.now(UTC)
+        rows = list(
+            self.db.execute(
+                select(Ticket.id, Ticket.priority, Ticket.sla_due_at, Ticket.completed_at, Ticket.status)
+                .where(Ticket.priority.is_not(None), Ticket.sla_due_at.is_not(None))
+            ).all()
+        )
+        starts = dict(
+            self.db.execute(
+                select(TicketAssignment.ticket_id, func.min(TicketAssignment.started_at))
+                .where(TicketAssignment.started_at.is_not(None))
+                .group_by(TicketAssignment.ticket_id)
+            ).all()
+        )
+
+        measured = 0
+        on_time = 0
+        overdue_open = 0
+        emergencies = 0
+        for ticket_id, priority, due_at, _completed_at, status in rows:
+            if not counts_toward_compliance(priority):
+                emergencies += 1
+                continue
+            started_at = starts.get(ticket_id)
+            if started_at is not None:
+                measured += 1
+                if _as_utc(started_at) <= _as_utc(due_at):
+                    on_time += 1
+                continue
+            if status in _OPEN_STATUSES and _as_utc(due_at) < now:
+                # Nobody has started it and the deadline has passed. Counted as
+                # a measured violation rather than left out.
+                measured += 1
+                overdue_open += 1
+
+        return {
+            "measured_total": measured,
+            "started_on_time": on_time,
+            "overdue_not_started": overdue_open,
+            "compliance_rate": (on_time / measured) if measured else None,
+            # Shown beside the rate, never inside it.
+            "emergency_manual_total": emergencies,
+        }

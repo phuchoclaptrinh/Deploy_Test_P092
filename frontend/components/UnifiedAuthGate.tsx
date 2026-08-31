@@ -20,51 +20,6 @@ const backendRoleMap: Record<string, BackendRole> = {
   TECHNICIAN: "technician",
 };
 
-const demoAccounts: Array<{ role: BackendRole; label: string; email: string; password: string }> = [
-  {
-    role: "resident",
-    label: "Cư dân",
-    email: process.env.NEXT_PUBLIC_DEMO_RESIDENT_EMAIL || "resident.test@homecare.local",
-    password: process.env.NEXT_PUBLIC_DEMO_RESIDENT_PASSWORD || "HomeCareTest2026",
-  },
-  {
-    role: "resident",
-    label: "Minh Anh",
-    email: process.env.NEXT_PUBLIC_DEMO_RESIDENT_2_EMAIL || "minhanh.cudan@homecare.vn",
-    password: process.env.NEXT_PUBLIC_DEMO_RESIDENT_2_PASSWORD || "homecare-demo",
-  },
-  {
-    role: "resident",
-    label: "Quốc Bảo",
-    email: process.env.NEXT_PUBLIC_DEMO_RESIDENT_3_EMAIL || "quocbao.cudan@homecare.vn",
-    password: process.env.NEXT_PUBLIC_DEMO_RESIDENT_3_PASSWORD || "homecare-demo",
-  },
-  {
-    role: "manager",
-    label: "BQL",
-    email: process.env.NEXT_PUBLIC_DEMO_MANAGER_EMAIL || "lan@bql.homecare.vn",
-    password: process.env.NEXT_PUBLIC_DEMO_MANAGER_PASSWORD || "homecare-demo",
-  },
-  {
-    role: "technician",
-    label: "KTV",
-    email: process.env.NEXT_PUBLIC_DEMO_TECHNICIAN_EMAIL || "minhan@homecare.vn",
-    password: process.env.NEXT_PUBLIC_DEMO_TECHNICIAN_PASSWORD || "homecare-demo",
-  },
-  {
-    role: "technician",
-    label: "Tuấn Điện",
-    email: process.env.NEXT_PUBLIC_DEMO_TECHNICIAN_2_EMAIL || "tuandien@homecare.vn",
-    password: process.env.NEXT_PUBLIC_DEMO_TECHNICIAN_2_PASSWORD || "homecare-demo",
-  },
-  {
-    role: "technician",
-    label: "Hoa Nước",
-    email: process.env.NEXT_PUBLIC_DEMO_TECHNICIAN_3_EMAIL || "hoanuoc@homecare.vn",
-    password: process.env.NEXT_PUBLIC_DEMO_TECHNICIAN_3_PASSWORD || "homecare-demo",
-  },
-];
-
 export function UnifiedAuthGate({ role, children }: { role: BackendRole; children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -115,13 +70,14 @@ export function UnifiedLoginPage() {
     return () => { active = false; };
   }, [nextPath, router]);
 
-  const loginWithPassword = async (slotRole: BackendRole, loginEmail: string, loginPassword: string) => {
+  const submit = async (event: FormEvent) => {
+    event.preventDefault();
     setBusy(true);
     setError("");
     try {
       clearAllAccessTokens();
-      const token = await signInWithPassword(slotRole, loginEmail, loginPassword);
-      const user = await getCurrentUser(slotRole);
+      const token = await signInWithPassword("resident", email, password);
+      const user = await getCurrentUser("resident");
       const role = roleFromUser(user);
       if (!role) throw new Error("Tài khoản chưa được gán vai trò hợp lệ.");
       clearAllAccessTokens();
@@ -135,17 +91,6 @@ export function UnifiedLoginPage() {
     }
   };
 
-  const submit = (event: FormEvent) => {
-    event.preventDefault();
-    void loginWithPassword("resident", email, password);
-  };
-
-  const loginDemoAccount = (account: (typeof demoAccounts)[number]) => {
-    setEmail(account.email);
-    setPassword(account.password);
-    void loginWithPassword(account.role, account.email, account.password);
-  };
-
   return <CinematicLogin
     email={email}
     password={password}
@@ -156,8 +101,6 @@ export function UnifiedLoginPage() {
     onPasswordChange={setPassword}
     onPasswordVisibilityChange={() => setShowPassword((value) => !value)}
     onSubmit={submit}
-    demoAccounts={demoAccounts}
-    onDemoLogin={loginDemoAccount}
   />;
 }
 

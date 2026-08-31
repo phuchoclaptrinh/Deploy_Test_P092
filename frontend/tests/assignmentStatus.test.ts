@@ -3,9 +3,9 @@ import test from "node:test";
 import { assignmentStatusDisplay } from "../lib/assignmentStatus.ts";
 
 test("assignment states use the KTV-facing labels", () => {
-  assert.deepEqual(assignmentStatusDisplay("ASSIGNED"), { label: "Đã phân công KTV", tone: "success" });
-  assert.deepEqual(assignmentStatusDisplay("IN_PROGRESS"), { label: "KTV đang xử lý", tone: "processing" });
-  assert.deepEqual(assignmentStatusDisplay("REJECTED"), { label: "KTV đã từ chối", tone: "warning" });
+  assert.deepEqual(assignmentStatusDisplay("ASSIGNED"), { label: "Đã gán", tone: "success" });
+  assert.deepEqual(assignmentStatusDisplay("IN_PROGRESS"), { label: "Đang xử lý", tone: "processing" });
+  assert.deepEqual(assignmentStatusDisplay("REJECTED"), { label: "KTV từ chối", tone: "warning" });
 });
 
 test("there is no acknowledgement state between assigned and in progress", () => {
@@ -13,7 +13,7 @@ test("there is no acknowledgement state between assigned and in progress", () =>
   // generic label rather than to its own wording. This is what stops a stale
   // client, or a payload from an older deployment, from reviving "KTV đã tiếp
   // nhận" on a screen.
-  assert.deepEqual(assignmentStatusDisplay("ACCEPTED"), { label: "Đã phân công KTV", tone: "neutral" });
+  assert.deepEqual(assignmentStatusDisplay("ACCEPTED"), { label: "Đã gán", tone: "neutral" });
 });
 
 test("no assignment state leaves the ticket lifecycle label in charge", () => {

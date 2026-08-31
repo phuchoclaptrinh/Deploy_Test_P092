@@ -1,5 +1,10 @@
 export type UserRole = "resident" | "manager" | "technician";
-export type Priority = "P0" | "P1" | "P2" | "P3";
+/** The five risk bands, plus the P0 the mock store uses for "awaiting review".
+ *
+ *  P5 is the emergency, not P3: the scale inverted with risk scoring v2. Kept
+ *  as a superset of `TicketPriority` in `types/api` because the mock store and
+ *  the badge component predate that file and are shared with the offline demo. */
+export type Priority = "P0" | "P1" | "P2" | "P3" | "P4" | "P5";
 
 export type TicketStatus =
   | "new"

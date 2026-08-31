@@ -6,7 +6,7 @@ def test_canonical_tables_present_with_technician_workflow():
     tables = set(Base.metadata.tables)
     assert {
         "user_profiles", "resident_profiles", "floors", "units",
-        "location_types", "locations", "categories", "scoring_rule_versions",
+        "location_types", "locations", "categories", "ticket_risk_assessments",
         "tickets", "ticket_attachments", "ai_analysis_runs", "ai_analysis_sessions",
         "ai_agent_tool_calls", "ai_agent_questions", "ticket_status_history",
         "information_requests", "incident_cases", "incident_case_members",
@@ -15,7 +15,10 @@ def test_canonical_tables_present_with_technician_workflow():
         } <= tables
     # `buildings` went with the single-building catalog: there is one building
     # and it is not a domain entity, so nothing keys on it any more.
-    assert not {"bql_staff", "residents", "buildings"} & tables
+    # `scoring_rule_versions` went with risk scoring v2: a versioned JSON blob
+    # of base scores and severity weights is a second, editable definition of a
+    # priority, which is exactly what the rubric replaced.
+    assert not {"bql_staff", "residents", "buildings", "scoring_rule_versions"} & tables
 
 
 def test_ticket_has_separate_business_and_classification_state():

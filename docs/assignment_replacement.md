@@ -203,7 +203,8 @@ unit is checked, under lock, before a single row is written.
 
 Other rejections: `VISUAL_UNIT_NOT_PLACEABLE` (409) for a unit that left the
 board. Failure codes beyond the warnings: `TICKET_NOT_APPROVED`,
-`TICKET_IS_DUPLICATE`, `P3_REVIEW_PENDING`, `ACTIVE_ASSIGNMENT_EXISTS`.
+`TICKET_IS_DUPLICATE`, `EMERGENCY_REVIEW_PENDING`, `GROUPING_NOT_READY`,
+`GROUPING_CASE_NOT_OPEN`, `ACTIVE_ASSIGNMENT_EXISTS`.
 
 ### 2.3 Automatic Assignment toggle
 

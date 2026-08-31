@@ -14,7 +14,6 @@ cleverer check would have to execute the migration.
 from __future__ import annotations
 
 import importlib.util
-import re
 from pathlib import Path
 
 import pytest
@@ -35,24 +34,6 @@ def _load(path: Path):
 
 
 MODULE = _load(VERSIONS / FILENAME)
-
-
-def _heads() -> list[str]:
-    revisions, downs = set(), set()
-    for path in VERSIONS.glob("*.py"):
-        text = path.read_text(encoding="utf-8")
-        revision = re.search(r'^revision: str = "([^"]+)"', text, re.M)
-        down = re.search(r"^down_revision: str \| Sequence\[str\] \| None = (.+)$", text, re.M)
-        if revision:
-            revisions.add(revision.group(1))
-            if down:
-                downs.add(down.group(1).strip().strip('"'))
-    return sorted(revisions - downs)
-
-
-def test_it_is_the_single_head():
-    """Two heads means somebody's database silently stops at the older one."""
-    assert _heads() == [REVISION]
 
 
 def test_it_follows_the_dispatch_revision():
@@ -215,7 +196,15 @@ def test_the_delete_scope_is_the_ticket_domain_and_only_that():
     listed = set(MODULE.TICKET_DOMAIN_TABLES)
     # Everything with a path to `tickets` must be in the reset, or the delete
     # fails on a foreign key -- or worse, succeeds and leaves orphans.
-    assert reaches_tickets <= listed, f"missing from the reset: {sorted(reaches_tickets - listed)}"
+    #
+    # `ticket_risk_assessments` is exempt because it did not exist when this
+    # revision ran: `a1b2c3d4e5f7` creates it, and that revision's own test
+    # asserts its reset covers it. A revision cannot be asked to delete from a
+    # table a later one introduces.
+    introduced_later = {"ticket_risk_assessments"}
+    assert reaches_tickets - introduced_later <= listed, (
+        f"missing from the reset: {sorted(reaches_tickets - introduced_later - listed)}"
+    )
 
     # The three that carry no `ticket_id` are named here deliberately, so adding
     # a fourth is a decision rather than an accident.
@@ -239,7 +228,6 @@ def test_the_building_and_its_people_are_not_deleted():
         "location_types",
         "floors",
         "units",
-        "scoring_rule_versions",
         "auto_assignment_settings",
         "audit_logs",
     }

@@ -8,10 +8,10 @@ spreading incident once the resident already has their answer.
 """
 
 from src.agents.service import (
-    resume_after_p3_downgrade,
+    resume_after_emergency_downgrade,
     resume_analysis,
     run_analysis,
     run_case_grouping,
 )
 
-__all__ = ["resume_after_p3_downgrade", "resume_analysis", "run_analysis", "run_case_grouping"]
+__all__ = ["resume_after_emergency_downgrade", "resume_analysis", "run_analysis", "run_case_grouping"]

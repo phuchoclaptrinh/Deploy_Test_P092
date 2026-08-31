@@ -22,8 +22,10 @@ Nếu một ảnh không tạo được URL truy cập, hệ thống ghi nhận 
 Kết quả phân loại thống nhất có thể gồm:
 
 - `category_id` hợp lệ trong catalog đã ghim.
-- Mức độ nghiêm trọng và nguồn xác định mức độ.
-- Dấu hiệu nguy hiểm (`red_flag`), nếu có.
+- Năm tiêu chí rủi ro, mỗi tiêu chí một số nguyên 0–4.
+- Danh sách blocker (sự kiện khẩn cấp có tên), kèm bằng chứng cho từng mã.
+- `unknown_facts`: tên những tiêu chí AI không có căn cứ để chấm — khác hẳn với
+  chấm 0, và khoảng cách giữa hai điều đó là lý do trường này tồn tại.
 - Lý do AI và các bằng chứng liên quan.
 - Câu hỏi cần gửi cư dân, nếu cần thêm dữ kiện.
 - Kết luận duplicate, lý do và `master_ticket_id`, nếu đã đánh giá duplicate.
@@ -40,13 +42,15 @@ Một lượt phân loại đa phương thức
         │        ↓
         │  Lưu câu trả lời vào cùng phiên → phân loại lại trên toàn bộ bằng chứng
         │
-        ├─ P3 / có dấu hiệu nguy hiểm → chuyển BQL xử lý tay
+        ├─ Chấm ra P5 → cảnh báo BQL NGAY
+        │        ↓
+        │  vẫn tra duplicate (không gộp cụm) → chờ BQL xác nhận hoặc hạ mức
         │
         └─ Đủ dữ kiện → tìm candidate duplicate → đánh giá duplicate
                  ↓
           Chốt kết quả foreground và thông báo cư dân
                  ↓
-          Bước nền: tìm và đánh giá grouping (nếu phù hợp)
+          Bước nền: tìm và đánh giá grouping (nếu phù hợp, chỉ P1–P4)
 ```
 
 Agent chỉ được hỏi để làm rõ:
@@ -55,7 +59,7 @@ Agent chỉ được hỏi để làm rõ:
 - Mức độ nghiêm trọng.
 - Vị trí thực tế khi có mâu thuẫn đáng kể với sự cố.
 
-Category sau khi đã được cư dân xác nhận được backend giữ cố định trong các lượt phân loại sau. Prompt cũng yêu cầu không lặp lại câu hỏi severity/location khi cư dân đã trả lời đủ; hiện tại đây chưa phải là điều kiện chặn cứng ở backend cho hai loại câu hỏi này.
+Category sau khi đã được cư dân xác nhận được backend giữ cố định trong các lượt phân loại sau. Prompt cũng yêu cầu không lặp lại câu hỏi tiêu chí/location khi cư dân đã trả lời đủ; hiện tại đây chưa phải là điều kiện chặn cứng ở backend cho hai loại câu hỏi này. Riêng năm câu hỏi tiêu chí thì *có* ràng buộc cứng: schema từ chối một câu hỏi về tiêu chí mà model đã tự chấm điểm, hoặc không khai trong `unknown_facts`.
 
 Ngoại lệ: nếu Agent kết luận ticket trùng với ticket vừa hoàn thành trong vòng một giờ, hệ thống hỏi thêm cư dân liệu sự cố có tái diễn hay không trước khi liên kết. Mục đích là tránh gộp nhầm một sự cố mới vào ticket vừa đóng.
 
@@ -118,10 +122,10 @@ Candidate grouping khác duplicate: nó dựa vào category có hỗ trợ group
 - **Agent foreground:** phân loại, hỏi cư dân, đánh giá duplicate từ candidate do backend cung cấp.
 - **Backend:** xây dựng evidence package, quản lý phiên/câu hỏi, kiểm tra thay đổi bằng chứng, tìm candidate, xác thực ID master và điều hướng BQL.
 - **Worker grouping:** tìm candidate grouping và thực hiện đánh giá grouping bất đồng bộ.
-- **BQL:** xử lý ticket P3, duplicate chưa chắc và các trường hợp cần quyết định thủ công.
+- **BQL:** xử lý ticket P5, duplicate chưa chắc và các trường hợp cần quyết định thủ công.
 
 ## 8. Các điểm cần tiếp tục cải tiến nếu muốn siết chặt tài liệu
 
-- Chặn ở backend việc hỏi lặp severity hoặc location sau khi cư dân đã trả lời đủ, thay vì chỉ dựa vào prompt.
+- Chặn ở backend việc hỏi lặp location sau khi cư dân đã trả lời đủ, thay vì chỉ dựa vào prompt. (Năm câu hỏi tiêu chí đã được chặn ở schema.)
 - Quy định rõ hành vi khi không thể lấy ảnh: retry/chuyển BQL hay cho phép phân loại với bằng chứng thiếu.
 - Nếu muốn grouping là một phần của kết quả thống nhất, cần đưa grouping candidate và đánh giá grouping vào foreground. Điều đó sẽ đổi kiến trúc hiện tại và có thể tăng latency cho cư dân.

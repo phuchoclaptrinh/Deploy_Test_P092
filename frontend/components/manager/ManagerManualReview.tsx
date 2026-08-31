@@ -4,12 +4,14 @@ import Link from "next/link";
 import { ArrowDown, ArrowLeft, CheckCircle2, ClipboardCheck, Copy, MessageSquareText, ShieldAlert, ShieldX, Sparkles } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { ManagerSurface } from "@/components/manager/ManagerSurface";
-import { SeverityField } from "@/components/manager/SeverityField";
+import { RiskCriteriaField, criteriaComplete } from "@/components/manager/RiskCriteriaField";
+import { RiskBreakdown } from "@/components/manager/RiskBreakdown";
 import { formatCategoryName } from "@/lib/category";
+import { QUESTION_KIND_LABELS } from "@/lib/questionKinds";
 import { formatDateTime } from "@/lib/mockService";
-import { managerControls } from "@/lib/p3Review";
-import { formatSeverity, type TicketSeverity } from "@/lib/severity";
-import type { CoordinatorAgentQuestionSummary, CoordinatorCategory, CoordinatorDuplicateCandidate, CoordinatorTicket, P3Decision, TicketPriority } from "@/types/api";
+import { EMERGENCY_CONFIRM_HINT, EMERGENCY_PENDING_LOCKED_HINT, managerControls } from "@/lib/emergencyReview";
+import { DOWNGRADE_PRIORITIES, PRIORITY_LABELS, formatBlocker } from "@/lib/risk";
+import type { BlockerCode, CoordinatorAgentQuestionSummary, CoordinatorCategory, CoordinatorDuplicateCandidate, CoordinatorTicket, EmergencyDecision, RiskCriteriaInput, TicketPriority } from "@/types/api";
 
 export type ManualResolutionSource = "IMAGE" | "TEXT" | "OTHER";
 
@@ -17,44 +19,40 @@ type Props = {
   ticket: CoordinatorTicket;
   categories: CoordinatorCategory[];
   busy: boolean;
-  /** `severity` is only supplied when the report has none yet — a stored one is kept. */
-  onResolve: (categoryId: string, source: ManualResolutionSource, reason: string, severity: TicketSeverity | null) => void;
+  /** `criteria` is only supplied when the report has no assessment yet — a stored one is kept. */
+  onResolve: (categoryId: string, source: ManualResolutionSource, reason: string, criteria: RiskCriteriaInput | null, blockers: BlockerCode[]) => void;
   onReject: (reason: string) => void;
   /** Present only for a report the agent flagged as an uncertain duplicate. */
   onDuplicateDecision?: (isDuplicate: boolean, reason: string, masterTicketId: string | null) => void;
-  onP3Decision?: (decision: P3Decision, priority: TicketPriority | null, reason: string) => void;
+  onEmergencyDecision?: (decision: EmergencyDecision, priority: TicketPriority | null, reason: string) => void;
 };
 
-const QUESTION_KIND_LABELS: Record<string, string> = {
-  CATEGORY_CONFIRMATION: "Xác nhận danh mục",
-  SEVERITY_CONFIRMATION: "Xác nhận mức độ",
-  LOCATION_CONFIRMATION: "Xác nhận vị trí",
-  RECENT_COMPLETION: "Sự cố vừa xử lý xong",
-};
 
-export function ManagerManualReview({ ticket, categories, busy, onResolve, onReject, onDuplicateDecision, onP3Decision }: Props) {
+export function ManagerManualReview({ ticket, categories, busy, onResolve, onReject, onDuplicateDecision, onEmergencyDecision }: Props) {
   const analysis = ticket.latest_analysis;
   // The emergency gate takes precedence over everything else on this page: a
   // P3 report has not reached duplicate handling and will not until this is
   // answered, so the duplicate panel cannot be open at the same time.
-  const { p3Pending: awaitingP3, canDecideDuplicate } = managerControls(ticket);
+  const { emergencyPending: awaitingEmergency, canDecideDuplicate } = managerControls(ticket);
   // Only while the decision is genuinely still open. Once it is taken the
   // backend refuses a second one, so leaving the buttons up would offer an
   // action that can only fail.
   const uncertainDuplicate = canDecideDuplicate;
   return <div className="managerPageStack managerManualReviewPage">
-    <div className="managerDetailContext"><Link href="/manager?view=manual-review"><ArrowLeft size={15} />Hàng chờ duyệt</Link><span className={`badge ${awaitingP3 ? "danger managerUrgentBadge" : "warning"}`}>{awaitingP3 ? "P3 khẩn cấp" : "Chờ điều phối viên duyệt"}</span></div>
-    <section className={`managerManualReviewNotice${awaitingP3 ? " urgent" : ""}`}><span>{awaitingP3 ? <ShieldAlert size={21} /> : <ClipboardCheck size={21} />}</span><div><strong>{awaitingP3 ? "Cần xác nhận khẩn cấp" : "Cần xác nhận thủ công"}</strong><p>{manualReviewReason(ticket)}</p></div></section>
+    <div className="managerDetailContext"><Link href="/manager?view=manual-review"><ArrowLeft size={15} />Hàng chờ duyệt</Link><span className={`badge ${awaitingEmergency ? "danger managerUrgentBadge" : "warning"}`}>{awaitingEmergency ? "P5 khẩn cấp" : "Chờ điều phối viên duyệt"}</span></div>
+    <section className={`managerManualReviewNotice${awaitingEmergency ? " urgent" : ""}`}><span>{awaitingEmergency ? <ShieldAlert size={21} /> : <ClipboardCheck size={21} />}</span><div><strong>{awaitingEmergency ? "Cần xác nhận khẩn cấp" : "Cần xác nhận thủ công"}</strong><p>{manualReviewReason(ticket)}</p></div></section>
 
-    {awaitingP3 && onP3Decision && <ManagerSurface className="managerManualP3" title="Xử lý khẩn cấp P3" icon={<ShieldAlert size={19} />}><P3Review ticket={ticket} busy={busy} onDecide={onP3Decision} /></ManagerSurface>}
+    {awaitingEmergency && onEmergencyDecision && <ManagerSurface className="managerManualEmergency" title="Xử lý khẩn cấp P5" icon={<ShieldAlert size={19} />}><EmergencyReview ticket={ticket} busy={busy} onDecide={onEmergencyDecision} /></ManagerSurface>}
 
     <ManagerSurface className="managerManualAiSummary" title="Kết luận của AI">
       <div className="managerManualMetaRow">
         <Meta label="Danh mục cuối cùng" value={categoryLabel(analysis?.final_category_id, categories)} />
-        <Meta label="Mức độ" value={formatSeverity(analysis?.severity)} />
-        <Meta label="Dấu hiệu nguy hiểm" value={analysis?.red_flag ? "Có" : "Không"} />
+        <Meta label="Sự kiện khẩn cấp" value={(analysis?.risk_assessment?.blocker_codes || []).map(formatBlocker).join(", ") || "Không có"} />
       </div>
       <p className="managerManualAiReason">{analysis?.ai_reason?.trim() || "AI không ghi lại lý do phân loại."}</p>
+      {/* The whole breakdown, not a summary of it. A coordinator disagreeing
+          with a priority needs the row to disagree with. */}
+      {analysis?.risk_assessment && <RiskBreakdown assessment={analysis.risk_assessment} />}
     </ManagerSurface>
 
     {uncertainDuplicate && onDuplicateDecision && <ManagerSurface className="managerManualDuplicate" title="Phản ánh có thể trùng"><DuplicateReview ticket={ticket} busy={busy} onDecide={onDuplicateDecision} /></ManagerSurface>}
@@ -63,45 +61,50 @@ export function ManagerManualReview({ ticket, categories, busy, onResolve, onRej
     {/* An emergency waiting on this page is not also waiting on a
         classification override; offering both would be offering two ways to
         answer the same question. */}
-    {!awaitingP3 && <ManagerSurface className="managerManualDecisionSurface" title="Hướng xử lý"><ManualReviewDecision ticket={ticket} categories={categories} busy={busy} onResolve={onResolve} onReject={onReject} /></ManagerSurface>}
+    {!awaitingEmergency && <ManagerSurface className="managerManualDecisionSurface" title="Hướng xử lý"><ManualReviewDecision ticket={ticket} categories={categories} busy={busy} onResolve={onResolve} onReject={onReject} /></ManagerSurface>}
   </div>;
 }
 
-/** The emergency gate: confirm P3, or downgrade it with a reason.
+/** The emergency gate: confirm P5, or downgrade it with a reason.
  *
- *  Exactly two actions, because there are exactly two answers. Confirming is
- *  the fast path and it says so plainly -- it publishes the report through the
- *  emergency route and deliberately skips duplicate correlation and grouping,
- *  which is a trade a coordinator should be making knowingly rather than
- *  discovering afterwards. Downgrading is the only route back into the
- *  pipeline, so it asks for the reason before it will submit. */
-function P3Review({ ticket, busy, onDecide }: { ticket: CoordinatorTicket; busy: boolean; onDecide: (decision: P3Decision, priority: TicketPriority | null, reason: string) => void }) {
+ *  Exactly two actions, because there are exactly two answers. Confirming does
+ *  not hand the work to anybody -- Building Management deals with a P5
+ *  themselves -- so it is stated on the row rather than left to be discovered.
+ *  Downgrading is the only route back into the normal pipeline, and it is the
+ *  one that asks for a reason: keeping a priority the rubric already reached
+ *  needs no argument, overriding it does.
+ *
+ *  Confirm sits open on the row; downgrade is folded into a `details` because
+ *  the common answer to an emergency is "yes, it is one". */
+function EmergencyReview({ ticket, busy, onDecide }: { ticket: CoordinatorTicket; busy: boolean; onDecide: (decision: EmergencyDecision, priority: TicketPriority | null, reason: string) => void }) {
   const analysis = ticket.latest_analysis;
-  const [priority, setPriority] = useState<TicketPriority>("P2");
+  const [priority, setPriority] = useState<TicketPriority>("P4");
   const [reason, setReason] = useState("");
   const canDowngrade = reason.trim().length > 0 && !busy;
 
-  return <div className="managerP3Review">
-    <div className="managerP3DecisionRow">
+  return <div className="managerEmergencyReview">
+    <div className="managerEmergencyDecisionRow">
       <span><ShieldAlert size={22} /></span>
       <div>
-        <strong>Duyệt P3 khẩn cấp</strong>
-        <p>Công bố ngay, bỏ qua tra trùng và gộp cụm.</p>
-        <div><b>{analysis?.ai_priority_before_review || "P3"}</b><small>{analysis?.red_flag ? "Có cờ đỏ" : "Không có cờ đỏ"}</small><small>{ticket.location_label || "Chưa rõ vị trí"}</small></div>
+        <strong>Xác nhận khẩn cấp P5</strong>
+        <p>{EMERGENCY_CONFIRM_HINT}</p>
+        <div><b>{analysis?.ai_priority_before_review || "P5"}</b><small>{blockerSummary(analysis)}</small><small>{ticket.location_label || "Chưa rõ vị trí"}</small></div>
       </div>
-      <button type="button" className="button danger managerP3Primary" disabled={busy} onClick={() => onDecide("CONFIRM_P3", null, "")}>
-        <ShieldAlert size={15} />{busy ? "Đang duyệt..." : "Duyệt ngay"}
+      {/* The confirm sends no reason. `reason` below belongs to the downgrade,
+          and attaching it here would file a coordinator's argument for lowering
+          the priority as their justification for keeping it. */}
+      <button type="button" className="button danger managerEmergencyPrimary" disabled={busy} onClick={() => onDecide("CONFIRM_P5", null, "")}>
+        <ShieldAlert size={15} />{busy ? "Đang xác nhận..." : "Xác nhận"}
       </button>
     </div>
 
-    <details className="managerP3Downgrade">
+    <details className="managerEmergencyDowngrade">
       <summary>Hạ mức nếu chưa đủ khẩn cấp</summary>
-      <div className="managerP3DowngradeFields">
+      <div className="managerEmergencyDowngradeFields">
       <label>
         Hạ mức xuống
         <select value={priority} onChange={(event) => setPriority(event.target.value as TicketPriority)} disabled={busy}>
-          <option value="P2">P2</option>
-          <option value="P1">P1</option>
+          {DOWNGRADE_PRIORITIES.map((band) => <option value={band} key={band}>{PRIORITY_LABELS[band]}</option>)}
         </select>
       </label>
       <textarea
@@ -111,9 +114,10 @@ function P3Review({ ticket, busy, onDecide }: { ticket: CoordinatorTicket; busy:
         rows={2}
         disabled={busy}
       />
-      <button type="button" className="button secondary" disabled={!canDowngrade} onClick={() => onDecide("DOWNGRADE_SEVERITY", priority, reason.trim())}>
+      <button type="button" className="button secondary" disabled={!canDowngrade} onClick={() => onDecide("DOWNGRADE_PRIORITY", priority, reason.trim())}>
         <ArrowDown size={15} />Hạ mức và xử lý tiếp
       </button>
+      <small className="managerEmergencyNote">{EMERGENCY_PENDING_LOCKED_HINT}</small>
       </div>
     </details>
   </div>;
@@ -178,11 +182,14 @@ function ManualReviewDecision({ ticket, categories, busy, onResolve, onReject }:
   const [categoryId, setCategoryId] = useState("");
   const [reason, setReason] = useState("BQL xác nhận kết quả phân loại.");
   const [rejectReason, setRejectReason] = useState("");
-  // The analysis left this report without a severity, so the backend cannot
-  // score it until the Coordinator names one. There is no default: an unanswered
-  // control keeps the confirm button disabled.
-  const severityMissing = !ticket.severity;
-  const [severity, setSeverity] = useState<TicketSeverity | "">("");
+  // The analysis left this report unscored, so the backend cannot derive a
+  // priority until the Coordinator scores it. There is no default anywhere: an
+  // unanswered control keeps the confirm button disabled rather than recording a
+  // zero somebody did not choose.
+  const assessment = ticket.risk_assessment;
+  const scoreMissing = !assessment;
+  const [criteria, setCriteria] = useState<Partial<RiskCriteriaInput>>({});
+  const [blockers, setBlockers] = useState<BlockerCode[]>([]);
 
   useEffect(() => {
     if (categoryId) return;
@@ -197,7 +204,7 @@ function ManualReviewDecision({ ticket, categories, busy, onResolve, onReject }:
     setCategoryId(options[0]?.id || "");
   };
   const sourceOptions = source === "IMAGE" ? imageCategories : source === "TEXT" ? textCategories : categories;
-  const canResolve = !busy && decision === "valid" && Boolean(categoryId) && reason.trim().length >= 3 && (!severityMissing || severity !== "");
+  const canResolve = !busy && decision === "valid" && Boolean(categoryId) && reason.trim().length >= 3 && (!scoreMissing || criteriaComplete(criteria));
 
   return <div className="managerManualDecisionGrid">
     <section className={`managerManualDecisionCard${decision === "valid" ? " active" : ""}`}>
@@ -208,9 +215,9 @@ function ManualReviewDecision({ ticket, categories, busy, onResolve, onReject }:
         <button type="button" className={source === "OTHER" ? "active" : ""} onClick={() => { setDecision("valid"); chooseSource("OTHER"); }}>Danh mục khác</button>
       </div>
       <div className="field"><label htmlFor="manual-category">Danh mục xác nhận</label><select id="manual-category" value={categoryId} disabled={decision !== "valid"} onChange={(event) => setCategoryId(event.target.value)}>{sourceOptions.map((category) => <option value={category.id} key={category.id}>{formatCategoryName(category.code, category.display_name)}</option>)}</select></div>
-      <SeverityField id="manual-severity" missing={severityMissing} stored={ticket.severity} value={severity} disabled={decision !== "valid"} onChange={setSeverity} />
+      <RiskCriteriaField missing={scoreMissing} stored={assessment} value={criteria} blockers={blockers} disabled={decision !== "valid"} onChange={setCriteria} onBlockersChange={setBlockers} />
       <div className="field"><label htmlFor="manual-reason">Ghi chú xác nhận</label><textarea id="manual-reason" value={reason} disabled={decision !== "valid"} onChange={(event) => setReason(event.target.value)} /></div>
-      <button className="button" disabled={!canResolve} onClick={() => onResolve(categoryId, source, reason.trim(), severityMissing ? severity || null : null)}><CheckCircle2 size={16} />Xác nhận và tính lại điểm</button>
+      <button className="button" disabled={!canResolve} onClick={() => onResolve(categoryId, source, reason.trim(), scoreMissing && criteriaComplete(criteria) ? criteria : null, blockers)}><CheckCircle2 size={16} />Xác nhận và tính lại điểm</button>
       <small className="managerManualStepHint">Bước này chỉ chốt phân loại. Phản ánh vẫn cần thao tác “Duyệt phản ánh” riêng sau đó.</small>
     </section>
     <section className={`managerManualDecisionCard invalid${decision === "invalid" ? " active" : ""}`}>
@@ -239,6 +246,14 @@ function manualReviewReason(ticket: CoordinatorTicket) {
 function resolveCategory(value: string | null | undefined, categories: CoordinatorCategory[]) {
   const match = value ? categories.find((category) => category.id === value || category.code === value) : undefined;
   return match ? [match] : [];
+}
+
+/** The named emergency facts behind this priority, or the fact that there are
+ *  none. An empty list is worth saying out loud: it means the score alone
+ *  reached P5, which is a different thing to argue with than a blocker. */
+function blockerSummary(analysis: CoordinatorTicket["latest_analysis"]) {
+  const codes = analysis?.risk_assessment?.blocker_codes || [];
+  return codes.length > 0 ? codes.map(formatBlocker).join(", ") : "Không có sự kiện khẩn cấp";
 }
 
 function categoryLabel(value: string | null | undefined, categories: CoordinatorCategory[]) {

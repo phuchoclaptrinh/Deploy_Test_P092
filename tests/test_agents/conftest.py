@@ -120,17 +120,37 @@ class ExplodingLLM:
 
 
 def classification(**overrides) -> UnifiedClassification:
-    """A plain, unambiguous water leak. Tests override only what they are about."""
+    """A plain, unambiguous water leak. Tests override only what they are about.
+
+    The five scores land this at 20.00 -- a P2 -- which is deliberately in the
+    middle of the scale: a default that scored P1 or P5 would make every test
+    that does not care about priority quietly depend on the band anyway.
+    """
     payload = {
         "category": "Nước",
         "text_category": "Nước",
         "image_category": None,
-        "severity": "MEDIUM",
-        "red_flag": False,
+        "human_safety": 1,
+        "property_spread": 1,
+        "essential_function": 1,
+        "affected_scope": 0,
+        "deterioration_speed": 1,
+        "blockers": [],
+        "unknown_facts": [],
         "understandable": True,
         "image_relevant": None,
         "location_consistent": True,
         "incident_facts": ["nước rỉ từ trần nhà tắm"],
+        # Attributed per criterion, the way the contract now asks for it: the
+        # leak is what the three non-zero scores are about, and `affected_scope`
+        # is 0 with nothing said about it, which is the shape of a checked zero.
+        "criterion_evidence": {
+            "human_safety": ["sàn nhà tắm trơn vì đọng nước"],
+            "property_spread": ["nước rỉ từ trần nhà tắm"],
+            "essential_function": ["nhà tắm vẫn dùng được nhưng bất tiện"],
+            "affected_scope": [],
+            "deterioration_speed": ["vết loang rộng dần theo ngày"],
+        },
         "ai_reason": "Cư dân mô tả nước rỉ liên tục từ trần nhà tắm.",
     }
     payload.update(overrides)
@@ -233,6 +253,31 @@ class AgentWorld:
 
     # -- writing ---------------------------------------------------------
 
+    def make_apartment(self, *, like_location_id: UUID, unit_code: str) -> tuple[UUID, UUID]:
+        """Another apartment on the same floor, with its own bathroom.
+
+        The fixed world has four apartments, which is one short of a full case
+        and two short of an overflowing one. Rather than grow the shared world
+        for the sake of two tests, this mints what a test needs from a location
+        it already has: same floor, same location type, new unit.
+
+        Returns `(unit_id, location_id)` in the order `make_ticket` wants them.
+        """
+        with self.session_factory() as db:
+            template = db.get(Location, like_location_id)
+            unit = Unit(floor_id=template.floor_id, unit_code=unit_code)
+            db.add(unit)
+            db.flush()
+            location = Location(
+                floor_id=template.floor_id,
+                location_type_id=template.location_type_id,
+                unit_id=unit.id,
+                label=f"Nhà tắm {unit_code}",
+            )
+            db.add(location)
+            db.commit()
+            return unit.id, location.id
+
     def make_ticket(
         self,
         *,
@@ -326,15 +371,14 @@ def agent_world(tmp_path, monkeypatch) -> AgentWorld:
         damp_d = Location(floor_id=floor_8.id, location_type_id=bathroom.id, unit_id=unit_d.id, label="Nhà tắm F0801")
         db.add_all([bath_a, bath_b, lift, damp_c, damp_d])
 
-        # Base scores and ceilings copied from the approved catalog, because
-        # the P3 tests turn on what these actually score to.
-        water = CategoryCatalog(code="WATER", display_name="Nước", base_score=10, priority_ceiling=None)
-        elevator = CategoryCatalog(code="ELEVATOR", display_name="Thang máy", base_score=35, priority_ceiling=None)
-        noise = CategoryCatalog(code="NOISE", display_name="Tiếng ồn", base_score=10, priority_ceiling="P1")
-        wall_damp = CategoryCatalog(code="WALL_DAMP", display_name="Thấm tường", base_score=20, priority_ceiling=None)
-        security = CategoryCatalog(
-            code="SECURITY_SAFETY", display_name="An ninh / An toàn", base_score=40, priority_ceiling=None
-        )
+        # No base scores and no ceilings: under the v2 rubric a category takes
+        # no part in scoring, so what a ticket scores depends only on the five
+        # criteria the scripted model returns.
+        water = CategoryCatalog(code="WATER", display_name="Nước")
+        elevator = CategoryCatalog(code="ELEVATOR", display_name="Thang máy")
+        noise = CategoryCatalog(code="NOISE", display_name="Tiếng ồn")
+        wall_damp = CategoryCatalog(code="WALL_DAMP", display_name="Thấm tường")
+        security = CategoryCatalog(code="SECURITY_SAFETY", display_name="An ninh / An toàn")
         db.add_all([water, elevator, noise, wall_damp, security])
 
         resident = UserProfile(user_id=uuid4(), role=UserRole.RESIDENT, full_name="Cư dân A", is_active=True)

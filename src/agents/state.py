@@ -25,7 +25,7 @@ which candidates come back -- the final Category, the `location_id`, and the
 material incident facts the model extracted -- are hashed into one fingerprint.
 The duplicate lookup reruns when the fingerprint moves and is reused when it
 does not. Nothing else is in the hash: not the description, not the wording of
-an answer, not the severity.
+an answer, not the risk scores.
 """
 
 from __future__ import annotations
@@ -34,8 +34,9 @@ import hashlib
 import json
 from typing import Literal, TypedDict
 
-Severity = Literal["LOW", "MEDIUM", "HIGH"]
-SeveritySource = Literal["IMAGE", "TEXT"]
+#: One 0-4 judgement per criterion, exactly as `docs/risk_scoring_v2.md` §3
+#: defines them. The Agent produces these; nothing here turns them into a score.
+RiskCriteria = dict[str, int]
 DuplicateVerdict = Literal["SAME_INCIDENT", "DIFFERENT_INCIDENT", "UNCERTAIN"]
 
 #: Sentinel for "this lookup has never run". Revision 0 is a real revision.
@@ -69,16 +70,15 @@ class AgentState(TypedDict, total=False):
     unit_code: str | None
     model_version: str
 
-    #: Category catalog pinned to this session (id / display_name / ceiling /
-    #: base_score). A name outside it is dropped, never coerced into a UUID.
+    #: Category catalog pinned to this session (id / display_name). A name
+    #: outside it is dropped, never coerced into a UUID.
+    #:
+    #: There is no second, score-bearing copy of this any more. The catalog used
+    #: to carry `code`, `base_score` and `priority_ceiling` so the emergency
+    #: check could score with them; under v2 a category is not an input to a
+    #: score at all, so the only catalog left is the one the model is shown.
     catalog: list[dict[str, object]]
     catalog_version: str
-
-    #: The same categories as `catalog`, keyed by id, with the Backend-internal
-    #: `code` the scoring rules key on. Kept separate precisely so `code` never
-    #: reaches a prompt: `catalog` is what the model is shown, this is what the
-    #: P3 check scores with.
-    scoring_catalog: dict[str, dict[str, object]]
 
     #: Every question asked so far and what the resident replied, in order.
     #: Part of the evidence package on every reclassification.
@@ -88,9 +88,22 @@ class AgentState(TypedDict, total=False):
     category_id: str | None
     text_category_id: str | None
     image_category_id: str | None
-    severity: Severity | None
-    severity_source: SeveritySource | None
-    red_flag: bool
+    #: The five 0-4 judgements, keyed by criterion name.
+    criteria: RiskCriteria | None
+    #: Named emergency facts, each one a `BlockerCode` value.
+    blockers: list[str]
+    #: Per-criterion evidence, plus a `blockers` key.
+    evidence: dict[str, list[str]]
+    #: Criterion names the model could not establish.
+    unknown_facts: list[str]
+    #: True once the immediate emergency warning has been raised for this
+    #: ticket. Re-classifying after a resident answer must not send it twice.
+    emergency_warned: bool
+    #: True when a coordinator has already downgraded this ticket out of the
+    #: emergency band. The criteria that scored P5 have not changed, so without
+    #: this the resumed round would score P5 again and re-open the gate the
+    #: coordinator just closed.
+    emergency_downgraded: bool
     ai_reason: str | None
     understandable: bool
     image_relevant: bool | None
@@ -162,62 +175,71 @@ def budget_actually_spent(state: AgentState) -> bool:
 
 
 def classification_settled(state: AgentState) -> bool:
-    """Category, severity and location are all resolved well enough to search.
+    """Category, criteria and location are all resolved well enough to search.
 
     Duplicate retrieval keys on the exact Category and the exact location, so
     running it before either is settled would look for the wrong thing.
     """
-    return bool(state.get("category_id")) and state.get("severity") in {"LOW", "MEDIUM", "HIGH"} and bool(state.get("location_id"))
+    return bool(state.get("category_id")) and criteria_complete(state) and bool(state.get("location_id"))
+
+
+def criteria_complete(state: AgentState) -> bool:
+    """All five judgements present and inside the 0-4 scale."""
+    from src.domain.risk_scoring import CRITERION_NAMES, MAX_CRITERION_SCORE, MIN_CRITERION_SCORE
+
+    criteria = state.get("criteria")
+    if not isinstance(criteria, dict):
+        return False
+    return all(
+        isinstance(criteria.get(name), int)
+        and not isinstance(criteria.get(name), bool)
+        and MIN_CRITERION_SCORE <= criteria[name] <= MAX_CRITERION_SCORE
+        for name in CRITERION_NAMES
+    )
 
 
 def prospective_priority(state: AgentState) -> str | None:
-    """Score the ticket the way `finalize` will, before the duplicate stage.
+    """Score the ticket the way `finalize` will, as soon as it can be scored.
 
-    Priority is normally decided at persistence time, but the P3 gate has to
-    fire *before* any duplicate lookup, so the same calculation is run here on
-    the same inputs: the pinned catalog row, the severity, the location type
-    and a density of one (no case exists yet).
+    Priority is decided at persistence time, but the emergency warning has to
+    fire the moment the classification lands, so the same calculator runs here
+    over the same five numbers. No category, no location and no case is
+    involved -- there is nothing here that `finalize` could disagree with.
+
+    Scope is the Agent's own estimate: no case exists yet, and inventing a
+    confirmed count of one would make a genuinely wide problem look narrow.
 
     Returns None when the ticket cannot be scored yet, which the caller treats
-    as "not P3" rather than guessing.
+    as "not an emergency" rather than guessing.
     """
-    from src.models.enums import Priority, Severity
-    from src.services.scoring_service import ScoringService
+    from src.domain.risk_scoring import RiskCriterionScores, calculate_risk_score
 
-    if state.get("red_flag"):
-        # Danger is P3 by definition and carries no score at all.
-        return Priority.P3.value
-
-    category_id = state.get("category_id")
-    severity = state.get("severity")
-    if not category_id or severity not in {"LOW", "MEDIUM", "HIGH"}:
+    if not criteria_complete(state):
         return None
-    snapshot = (state.get("scoring_catalog") or {}).get(str(category_id))
-    if snapshot is None:
+    criteria = state["criteria"]
+    try:
+        result = calculate_risk_score(
+            RiskCriterionScores(**criteria),
+            blocker_codes=state.get("blockers") or [],
+        )
+    except ValueError:
+        # A blocker code the backend does not know, or a criterion outside the
+        # scale. Both are payload faults, and neither is a priority.
         return None
-
-    ceiling = snapshot.get("priority_ceiling")
-    outcome = ScoringService().calculate_dynamic(
-        category_code=str(snapshot.get("code") or ""),
-        base_score=int(snapshot.get("base_score") or 0),
-        severity=Severity(severity),
-        location_type_code=state.get("location_type_code"),
-        # One apartment. Grouping runs later and by design does not rescore.
-        density_count=1,
-        red_flag_detected=False,
-        priority_ceiling=Priority(ceiling) if ceiling in {"P1", "P2", "P3"} else None,
-    )
-    return outcome.priority_final.value
+    return result.final_priority.value
 
 
-def p3_review_required(state: AgentState) -> bool:
-    """True when this round must stop for a human before doing anything else.
+def emergency_review_required(state: AgentState) -> bool:
+    """True when this round ends with a human, not with an operational exit.
 
-    P3 is the five-minute-SLA priority. Everything after classification --
-    duplicate retrieval, duplicate judgement, grouping, publication -- is
-    deferred until a coordinator confirms the emergency or downgrades it.
+    P5 is the five-minute-SLA priority. Publication, grouping and every
+    assignment path are deferred until a coordinator confirms the emergency or
+    downgrades it. Duplicate retrieval is *not* deferred -- see
+    `docs/risk_scoring_v2.md` §7.
     """
-    return prospective_priority(state) == "P3"
+    if state.get("emergency_downgraded"):
+        return False
+    return prospective_priority(state) == "P5"
 
 
 def category_is_confirmed(state: AgentState) -> bool:
@@ -307,6 +329,7 @@ __all__ = [
     "has_technical_failure",
     "input_insufficient",
     "needs_duplicate_search",
-    "p3_review_required",
+    "emergency_review_required",
+    "criteria_complete",
     "prospective_priority",
 ]

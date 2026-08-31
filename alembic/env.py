@@ -6,6 +6,7 @@ import src.database.models  # noqa: F401
 from alembic import context
 from src.config import get_settings
 from src.database.base import Base
+from src.database.migration_safety import alembic_command_requires_live_migration_approval
 from src.database.migration_safety import validate_live_migration_safety as _validate_live_migration_safety
 
 # this is the Alembic Config object, which provides
@@ -28,8 +29,18 @@ def get_database_url() -> str:
     return database_url
 
 
+def _alembic_command_name() -> str | None:
+    """Return the CLI command Alembic is executing, when one is available."""
+    command = getattr(getattr(config, "cmd_opts", None), "cmd", None)
+    if not command:
+        return None
+    return getattr(command[0], "__name__", None)
+
+
 def validate_live_migration_safety() -> None:
-    _validate_live_migration_safety()
+    command_name = _alembic_command_name()
+    if alembic_command_requires_live_migration_approval(command_name):
+        _validate_live_migration_safety()
 
 
 def run_migrations_offline() -> None:

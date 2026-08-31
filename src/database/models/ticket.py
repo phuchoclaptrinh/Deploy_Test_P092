@@ -13,7 +13,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.types import Uuid
 
 from src.database.base import Base
-from src.models.enums import ClassificationStatus, Priority, Severity, SeveritySource, TicketStatus
+from src.models.enums import ClassificationStatus, Priority, TicketStatus
 
 if TYPE_CHECKING:
     from src.database.models.ai_analysis import AIAnalysisRun
@@ -23,6 +23,7 @@ if TYPE_CHECKING:
     from src.database.models.location import Location
     from src.database.models.notification import Notification
     from src.database.models.ticket_assignment import TicketAssignment
+    from src.database.models.ticket_risk_assessment import TicketRiskAssessment
     from src.database.models.ticket_status_history import TicketStatusHistory
     from src.database.models.unit import Unit
     from src.database.models.user_profile import UserProfile
@@ -88,19 +89,15 @@ class Ticket(Base):
     priority: Mapped[Priority | None] = mapped_column(
         SQLEnum(Priority, name="priority_level_enum", native_enum=True, values_callable=enum_values), nullable=True
     )
-    severity: Mapped[Severity | None] = mapped_column(
-        SQLEnum(Severity, name="severity_v2_enum", native_enum=True, values_callable=enum_values), nullable=True
+    # --- cache of the current risk assessment ------------------------------
+    # `ticket_risk_assessments` is the record; these three are the denormalized
+    # copy every list screen and every dispatch query reads. They are only ever
+    # written together with a new assessment row, and they can be rebuilt from
+    # it -- which is why nothing else may write them.
+    current_risk_assessment_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("ticket_risk_assessments.id", ondelete="SET NULL"), nullable=True
     )
-    # Only written when a human supplied `severity`: §8.3 lets the Coordinator
-    # choose it during manual review when the analysis produced none. It stays
-    # NULL for an AI-derived severity, whose real source is on the analysis run
-    # (`ai_analysis_runs.severity_source`) and must not be restated here.
-    severity_source: Mapped[SeveritySource | None] = mapped_column(
-        SQLEnum(SeveritySource, name="severity_source_enum", native_enum=True, values_callable=enum_values),
-        nullable=True,
-    )
-    red_flag_detected: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
-    score_total: Mapped[Decimal | None] = mapped_column(Numeric(7, 2), nullable=True)
+    risk_score: Mapped[Decimal | None] = mapped_column(Numeric(5, 2), nullable=True)
     invalid_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     reassignment_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     auto_assignment_paused: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
@@ -136,3 +133,9 @@ class Ticket(Base):
     )
     notifications: Mapped[list[Notification]] = relationship(back_populates="ticket")
     assignments: Mapped[list[TicketAssignment]] = relationship(back_populates="ticket", cascade="all, delete-orphan")
+    risk_assessments: Mapped[list[TicketRiskAssessment]] = relationship(
+        back_populates="ticket",
+        cascade="all, delete-orphan",
+        foreign_keys="TicketRiskAssessment.ticket_id",
+        order_by="TicketRiskAssessment.revision_no",
+    )

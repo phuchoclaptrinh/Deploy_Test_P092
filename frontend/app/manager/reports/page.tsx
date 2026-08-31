@@ -7,15 +7,21 @@ import { RoleShell } from "@/components/RoleShell";
 import { ManagerStatCard } from "@/components/manager/DashboardWidgets";
 import { ManagerSurface } from "@/components/manager/ManagerSurface";
 import { formatCategoryName } from "@/lib/category";
+import { COMPLIANCE_PRIORITIES, PRIORITIES, PRIORITY_SLA_MINUTES, PRIORITY_SLA_TEXT } from "@/lib/risk";
 import { categories } from "@/lib/mockService";
 import type { Priority, Ticket } from "@/lib/types";
-import type { CoordinatorTicket, TechnicianProductivityReport } from "@/types/api";
+import type { CoordinatorTicket, TechnicianProductivityReport, TicketPriority } from "@/types/api";
 
 type Period = "week" | "month";
 type GroupBy = "category" | "priority";
-const priorityOrder: Priority[] = ["P3", "P2", "P1", "P0"];
-const slaMinutes: Partial<Record<Priority, number>> = { P3: 5, P2: 180, P1: 4320 };
-const slaText: Partial<Record<Priority, string>> = { P3: "5 phút", P2: "3 giờ", P1: "72 giờ" };
+/** Highest first, so the bar that matters is the one on the left.
+ *
+ *  This list used to be `["P3", "P2", "P1", "P0"]` -- the v1 scale, still here
+ *  after the bands became P1-P5. Every P4 and P5 ticket fell into no bucket and
+ *  simply vanished from the chart, while a permanently-empty P0 bar took up a
+ *  fifth of the width. It is read from `lib/risk` now rather than restated, so
+ *  the next change to the scale cannot leave a report behind again. */
+const priorityOrder = [...PRIORITIES].reverse();
 
 export default function ManagerReportsPage() {
   const [period, setPeriod] = useState<Period>("month");
@@ -27,7 +33,7 @@ export default function ManagerReportsPage() {
   useEffect(() => { getTechnicianProductivityReport(period).then(setProductivity).catch(() => setProductivity(null)); }, [period]);
   const tickets = useMemo(() => {
     const cutoff = Date.now() - (period === "week" ? 7 : 30) * 86_400_000;
-    return backendTickets.filter((ticket) => Date.parse(ticket.created_at) >= cutoff).map((ticket): Ticket => ({ id: ticket.id, title: ticket.description || "Phản ánh", description: ticket.description || "", unitId: ticket.source_unit_id, floor: ticket.location_label || "", locationType: ticket.location_label || "", category: formatCategoryName(ticket.category), priority: ticket.priority || "P1", score: ticket.score_total, status: ({ NEW: "new", WAITING_RESIDENT_INFO: "needs_info", APPROVED: "approved", IN_PROGRESS: "in_progress", COMPLETED: "completed", UNRESOLVABLE: "cannot_resolve", INVALID: "invalid", CANCELLED: "cancelled" } as const)[ticket.status] || "new", createdAt: ticket.created_at, updatedAt: ticket.updated_at, dueAt: ticket.sla_due_at || undefined, residentName: "Cư dân", residentPhone: "", imageReadable: true, redFlag: false, timeline: [] }));
+    return backendTickets.filter((ticket) => Date.parse(ticket.created_at) >= cutoff).map((ticket): Ticket => ({ id: ticket.id, title: ticket.description || "Phản ánh", description: ticket.description || "", unitId: ticket.source_unit_id, floor: ticket.location_label || "", locationType: ticket.location_label || "", category: formatCategoryName(ticket.category), priority: ticket.priority || "P1", score: ticket.risk_score, status: ({ NEW: "new", WAITING_RESIDENT_INFO: "needs_info", APPROVED: "approved", IN_PROGRESS: "in_progress", COMPLETED: "completed", UNRESOLVABLE: "cannot_resolve", INVALID: "invalid", CANCELLED: "cancelled" } as const)[ticket.status] || "new", createdAt: ticket.created_at, updatedAt: ticket.updated_at, dueAt: ticket.sla_due_at || undefined, residentName: "Cư dân", residentPhone: "", imageReadable: true, redFlag: false, timeline: [] }));
   }, [backendTickets, period]);
   const completed = tickets.filter((ticket) => ticket.status === "completed");
   const completedWithSla = completed.filter((ticket) => ticket.dueAt);
@@ -52,7 +58,7 @@ export default function ManagerReportsPage() {
         <BarChart title="Ticket theo độ ưu tiên" data={priorityData} priority />
       </section>
       <ManagerSurface title="Hiệu suất theo Priority" description="Thời gian thực tế so với thời gian cam kết." eyebrow="Hiệu suất xử lý" icon={<TableProperties size={19} />} actions={<span className="managerCountBadge">Ticket hoàn thành trong kỳ</span>} bodyClassName="managerSurfaceTableBody">
-        <div className="tableWrap"><table className="dataTable reportTable"><thead><tr><th>Priority</th><th>Thời gian cam kết</th><th>Thực tế TB</th><th>Đúng hạn</th><th>Quá hạn</th></tr></thead><tbody>{(["P3", "P2", "P1"] as Priority[]).map((priority) => <SlaRow key={priority} priority={priority} tickets={completed.filter((ticket) => ticket.priority === priority)} />)}</tbody></table></div>
+        <div className="tableWrap"><table className="dataTable reportTable"><thead><tr><th>Priority</th><th>Thời gian cam kết</th><th>Thực tế TB</th><th>Đúng hạn</th><th>Quá hạn</th></tr></thead><tbody>{COMPLIANCE_PRIORITIES.map((priority) => <SlaRow key={priority} priority={priority} tickets={completed.filter((ticket) => ticket.priority === priority)} />)}</tbody></table></div>
       </ManagerSurface>
       <ManagerSurface title="Năng suất kỹ thuật viên" description="Số liệu theo kỳ, lấy trực tiếp từ báo cáo backend." eyebrow="Bảng năng suất" icon={<Users size={19} />} actions={<span className="managerCountBadge">{productivity?.period === "week" ? "Tuần hiện tại" : "Tháng hiện tại"}</span>} bodyClassName="managerSurfaceTableBody">
         <div className="tableWrap"><table className="dataTable reportTable"><thead><tr><th>Kỹ thuật viên</th><th>Ngày hoạt động</th><th>Ticket đã xử lý</th><th>Trễ SLA</th><th>Nhận lại từ người khác</th></tr></thead><tbody>
@@ -70,12 +76,12 @@ function BarChart({ title, data, priority = false }: { title: string; data: { la
   return <ManagerSurface className="reportChart" title={title} description="Phân bố ticket trong kỳ đang chọn." icon={<BarChart3 size={19} />} bodyClassName="managerChartBody"><div className={`reportBars ${priority ? "priorityBars" : ""}`}>{data.map((item) => <div className="reportBarItem" key={item.label} title={`${item.label}: ${item.value} ticket`}><strong>{item.value}</strong><div className={`reportBar ${priority ? `bar-${item.label}` : ""}`} style={{ height: `${Math.max(item.value ? 14 : 2, (item.value / max) * 100)}%` }} /><span>{shortLabel(item.label)}</span></div>)}</div></ManagerSurface>;
 }
 
-function SlaRow({ priority, tickets }: { priority: Priority; tickets: Ticket[] }) {
+function SlaRow({ priority, tickets }: { priority: TicketPriority; tickets: Ticket[] }) {
   const average = tickets.length ? tickets.reduce((sum, ticket) => sum + elapsedMinutes(ticket), 0) / tickets.length : null;
-  const limit = slaMinutes[priority] || 0;
+  const limit = PRIORITY_SLA_MINUTES[priority];
   const onTime = tickets.filter((ticket) => elapsedMinutes(ticket) <= limit).length;
   const rate = tickets.length ? Math.round((onTime / tickets.length) * 100) : null;
-  return <tr><td><strong>{priority}</strong></td><td>{slaText[priority]}</td><td>{average == null ? "Chưa có dữ liệu" : formatDuration(average)}</td><td>{rate == null ? "—" : `${rate}%`}</td><td>{tickets.length - onTime} ticket</td></tr>;
+  return <tr><td><strong>{priority}</strong></td><td>{PRIORITY_SLA_TEXT[priority]}</td><td>{average == null ? "Chưa có dữ liệu" : formatDuration(average)}</td><td>{rate == null ? "—" : `${rate}%`}</td><td>{tickets.length - onTime} ticket</td></tr>;
 }
 
 function elapsedMinutes(ticket: Ticket) { return Math.max(0, (Date.parse(ticket.updatedAt) - Date.parse(ticket.createdAt)) / 60_000); }

@@ -19,12 +19,7 @@ class CategoryService:
 
     def create(self, actor_user_id: UUID, body: CategoryCreateRequest) -> CategoryCatalog:
         try:
-            row = self.catalog.create_category(
-                body.code,
-                body.display_name,
-                body.base_score,
-                body.priority_ceiling,
-            )
+            row = self.catalog.create_category(body.code, body.display_name)
             self._audit(actor_user_id, "CREATE_CATEGORY", row, None, self._snapshot(row))
             self.db.commit()
             self.db.refresh(row)
@@ -39,14 +34,8 @@ class CategoryService:
             before = self._snapshot(row)
             if body.display_name is not None:
                 row.display_name = body.display_name.strip()
-            if body.base_score is not None:
-                row.base_score = body.base_score
-            if body.priority_ceiling is not None:
-                row.priority_ceiling = body.priority_ceiling
             if body.is_active is not None:
                 row.is_active = body.is_active
-            if row.is_active and row.base_score is None:
-                raise DomainError(CATEGORY_REQUIRED, "Active Category requires base_score.", 409)
             self._audit(actor_user_id, "UPDATE_CATEGORY", row, before, self._snapshot(row))
             self.db.commit()
             self.db.refresh(row)
@@ -101,7 +90,5 @@ class CategoryService:
             "id": str(row.id),
             "code": row.code,
             "display_name": row.display_name,
-            "base_score": row.base_score,
-            "priority_ceiling": row.priority_ceiling.value if row.priority_ceiling else None,
             "is_active": row.is_active,
         }

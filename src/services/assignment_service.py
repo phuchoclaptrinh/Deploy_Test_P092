@@ -11,6 +11,7 @@ from src.database.models.ticket import Ticket
 from src.database.models.ticket_assignment import TicketAssignment
 from src.dispatch.planning import apply_placement, plan_single, reindex_technicians
 from src.dispatch.shift import is_within_shift
+from src.domain.assignment_guard import assert_ticket_assignment_allowed
 from src.domain.assignment_transitions import ACTIVE_ASSIGNMENT_STATUSES, require_assignment_transition
 from src.domain.ticket_transitions import require_assignable_ticket, require_ticket_status
 from src.models.api.errors import (
@@ -43,7 +44,7 @@ from src.services.assignment_support import (
     AssignmentSideEffects,
 )
 from src.services.dispatch_reassignment import requeue_after_release
-from src.services.p3_review_guard import assert_p3_review_not_pending
+from src.services.emergency_review_guard import assert_emergency_review_not_pending
 from src.services.storage_service import StorageService
 
 #: How each database names §3's one-live-job-per-technician index when it
@@ -86,10 +87,12 @@ class AssignmentService:
         try:
             now = now or datetime.now(UTC)
             ticket = self._locked_ticket(ticket_id)
-            # Unreachable through the normal lifecycle -- a P3-pending ticket is
-            # never APPROVED -- but this is the check that makes that a fact
-            # rather than a consequence of two other rules agreeing.
-            assert_p3_review_not_pending(self.db, ticket_id)
+            # Two different facts, both checked. The gate covers a ticket whose
+            # priority is not settled yet; the guard covers one whose priority
+            # is settled *at* P5. Neither implies the other, and a ticket that
+            # was downgraded and then re-escalated satisfies only the second.
+            assert_emergency_review_not_pending(self.db, ticket_id)
+            assert_ticket_assignment_allowed(ticket)
             self._require_assignment_shift(now)
             technician = self.technicians.get_technician(technician_id, lock=True)
             if technician is None:
@@ -170,11 +173,17 @@ class AssignmentService:
             # touching an overlapping set of tickets cannot deadlock against
             # this one.
             tickets = [self._locked_ticket(ticket_id) for ticket_id in sorted(set(ticket_ids), key=str)]
-            # The P3 safety gate is more specific than the shift gate. A P3
-            # report must remain visibly gated even when a coordinator happens
-            # to try assigning it outside the working window.
+            # The emergency checks are more specific than the shift gate: an
+            # emergency must remain visibly refused even when a coordinator
+            # happens to try assigning it outside the working window.
+            #
+            # One P5 member refuses the whole case. A case is one unit of work,
+            # and handing four of five members to a technician while the fifth
+            # is an emergency somebody is walking to would split one incident
+            # across two responses.
             for ticket in tickets:
-                assert_p3_review_not_pending(self.db, ticket.id)
+                assert_emergency_review_not_pending(self.db, ticket.id)
+                assert_ticket_assignment_allowed(ticket)
             self._require_assignment_shift(now)
             technician = self.technicians.get_technician(technician_id, lock=True)
             if technician is None:
@@ -504,7 +513,7 @@ class AssignmentService:
             unit_key=assignment.id,
             ticket_ids=[ticket.id],
             category_codes=[ticket.category.code] if ticket.category else [],
-            score=float(ticket.score_total or 0),
+            score=float(ticket.risk_score or 0),
             submitted_at=ticket.created_at,
             technician_id=technician_id,
             now=now,

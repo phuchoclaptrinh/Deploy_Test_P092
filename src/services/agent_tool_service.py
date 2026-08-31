@@ -36,6 +36,8 @@ from sqlalchemy.orm import joinedload, selectinload
 from src.database.models.ai_agent_session import AIAgentToolCall
 from src.database.models.location import Location
 from src.database.models.ticket import Ticket
+from src.domain.grouping_guard import ticket_may_join_case
+from src.domain.risk_scoring import EMERGENCY_PRIORITY
 from src.models.agent_schemas import (
     MAX_DUPLICATE_CANDIDATES,
     MAX_GROUPING_CANDIDATES,
@@ -93,7 +95,7 @@ class AgentToolService(AgentServiceBase):
         session = self._session(session_id, lock=True)
         self._validate_session_ticket(session, ticket_id)
 
-        if self.p3_gate_is_open(ticket_id):
+        if self.emergency_gate_is_open(ticket_id):
             # Both purposes are blocked. Duplicate work is what the gate exists
             # to defer, and grouping is downstream of it.
             raise DomainError(
@@ -271,6 +273,12 @@ class AgentToolService(AgentServiceBase):
                 Ticket.created_at >= current.created_at - window,
                 Ticket.created_at <= current.created_at + window,
                 Ticket.status.not_in(GROUPING_EXCLUDED_STATUSES),
+                # An emergency is not a case member. See
+                # `src/domain/grouping_guard.py` -- filtering on status alone
+                # let a P5 into the count and pushed a P4 neighbour over 80.
+                # `is_distinct_from` rather than `!=` so an unscored ticket,
+                # whose priority is NULL, still reaches the model.
+                Ticket.priority.is_distinct_from(EMERGENCY_PRIORITY),
             )
             .options(*self._candidate_load_options())
             .order_by(Ticket.created_at.desc())
@@ -351,7 +359,7 @@ class AgentToolService(AgentServiceBase):
         session = self._session(session_id, lock=True)
         self._validate_session_ticket(session, ticket_id)
 
-        if self.p3_gate_is_open(ticket_id):
+        if self.emergency_gate_is_open(ticket_id):
             raise DomainError(
                 INVALID_STATUS_TRANSITION,
                 "Phản ánh đang chờ duyệt mức khẩn cấp nên chưa gộp cụm sự cố.",
@@ -457,7 +465,12 @@ class AgentToolService(AgentServiceBase):
             row
             for row in rows
             if (
-                self._same_building_adjacent_floor(ticket, row)
+                # Re-checked rather than trusted from the search: a ticket that
+                # was P4 when the candidates were fetched can be P5 by the time
+                # the proposal arrives, and a replayed proposal carries ids that
+                # were valid under a priority nobody holds any more.
+                ticket_may_join_case(row)
+                and self._same_building_adjacent_floor(ticket, row)
                 and abs(row.created_at - ticket.created_at) <= window
             )
         ]

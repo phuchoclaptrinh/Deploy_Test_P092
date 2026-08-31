@@ -44,9 +44,11 @@ h1, h2, h3, p { margin-top: 0; }
 .formGrid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
 .formStack { display: grid; gap: 17px; }
 .badge { display: inline-flex; align-items: center; width: fit-content; max-width: 100%; min-height: 25px; padding: 3px 8px; overflow: hidden; border-radius: 999px; font-size: 11px; font-weight: 780; text-overflow: ellipsis; white-space: nowrap; }
-.priority-P3, .status-cannot_resolve { color: var(--red); background: var(--red-soft); }
-.priority-P2, .status-p0_review, .status-needs_info { color: var(--amber); background: var(--amber-soft); }
-.priority-P1, .status-new { color: var(--blue); background: var(--blue-soft); }
+.priority-P5, .status-cannot_resolve { color: var(--red); background: var(--red-soft); }
+.priority-P5 { font-weight: 700; }
+.priority-P4, .status-p0_review, .status-needs_info { color: var(--amber); background: var(--amber-soft); }
+.priority-P3 { color: #0f766e; background: #ecfdf5; }
+.priority-P2, .priority-P1, .status-new { color: var(--blue); background: var(--blue-soft); }
 .priority-P0 { color: #6a4b91; background: #f2ebfb; }
 .status-in_progress, .status-approved { color: var(--green); background: var(--green-soft); }
 .status-completed { color: #33704f; background: #e3f2e8; }
@@ -224,7 +226,7 @@ h1, h2, h3, p { margin-top: 0; }
 .currentStatusCard { padding: 10px 12px; display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 4px 12px; border: 1px solid var(--line); background: #f7f8f7; }.currentStatusCard span { color: var(--muted); font-size: 10px; }.currentStatusCard strong { grid-row: 2; font-size: 13px; }.currentStatusCard small { grid-column: 2; grid-row: 1/3; display: flex; align-items: center; gap: 5px; color: var(--muted); font-size: 10px; }.managerStatusOptions { display: grid; gap: 7px; }.managerStatusOption { min-height: 43px; padding: 8px 10px; display: flex; align-items: center; gap: 9px; border: 1px solid var(--line); cursor: pointer; }.managerStatusOption:has(input:checked) { border-color: var(--ink); background: #f4f6f5; }.managerStatusOption span { font-size: 12px; font-weight: 650; }
 .managerReportPeriod { height: 34px; padding: 0 28px 0 10px; color: var(--ink); border: 1px solid #b9c0bc; border-radius: 4px; background: white; font-size: 11px; }.managerExportButton { min-height: 34px; color: white; background: var(--ink); font-size: 11px; }
 .reportMetrics { margin-bottom: 12px; display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 12px; }.reportMetric { min-height: 92px; padding: 14px 16px; display: grid; align-content: center; background: white; border: 1px solid #b8c1bd; }.reportMetric span, .reportLabel { color: #69716d; font-size: 10px; font-weight: 800; text-transform: uppercase; }.reportMetric strong { margin: 4px 0 2px; font-size: 25px; }.reportMetric small { color: var(--muted); font-size: 10px; }
-.reportChartGrid { margin-bottom: 12px; display: grid; grid-template-columns: minmax(0,1fr) 340px; gap: 12px; }.reportChart { min-width: 0; padding: 15px; background: white; border: 1px solid #b8c1bd; }.reportBars { height: 205px; margin-top: 14px; padding: 20px 8px 0; display: grid; grid-template-columns: repeat(11,minmax(28px,1fr)); align-items: end; gap: 8px; border-bottom: 1px solid #aeb5b1; }.reportBarItem { height: 100%; min-width: 0; display: grid; grid-template-rows: 18px 1fr 38px; align-items: end; text-align: center; }.reportBarItem strong { color: var(--muted); font-size: 10px; }.reportBar { width: min(38px,100%); min-height: 2px; margin: 0 auto; background: #79817d; }.reportBarItem:nth-child(even) .reportBar { background: #a5aba8; }.reportBarItem span { min-width: 0; padding-top: 6px; overflow: hidden; color: #68716d; font-size: 9px; line-height: 1.2; text-overflow: ellipsis; }.priorityBars { grid-template-columns: repeat(4,1fr); gap: 20px; }.priorityBars .bar-P3 { background: #b44037; }.priorityBars .bar-P2 { background: #b68435; }.priorityBars .bar-P1 { background: #5a7f99; }.priorityBars .bar-P0 { background: repeating-linear-gradient(135deg,#c7c9c8 0 5px,#f3f4f3 5px 10px); border: 1px dashed #7d8480; }
+.reportChartGrid { margin-bottom: 12px; display: grid; grid-template-columns: minmax(0,1fr) 340px; gap: 12px; }.reportChart { min-width: 0; padding: 15px; background: white; border: 1px solid #b8c1bd; }.reportBars { height: 205px; margin-top: 14px; padding: 20px 8px 0; display: grid; grid-template-columns: repeat(11,minmax(28px,1fr)); align-items: end; gap: 8px; border-bottom: 1px solid #aeb5b1; }.reportBarItem { height: 100%; min-width: 0; display: grid; grid-template-rows: 18px 1fr 38px; align-items: end; text-align: center; }.reportBarItem strong { color: var(--muted); font-size: 10px; }.reportBar { width: min(38px,100%); min-height: 2px; margin: 0 auto; background: #79817d; }.reportBarItem:nth-child(even) .reportBar { background: #a5aba8; }.reportBarItem span { min-width: 0; padding-top: 6px; overflow: hidden; color: #68716d; font-size: 9px; line-height: 1.2; text-overflow: ellipsis; }.priorityBars { grid-template-columns: repeat(5,1fr); gap: 20px; }.priorityBars .bar-P5 { background: #b44037; }.priorityBars .bar-P4 { background: #b68435; }.priorityBars .bar-P3 { background: #5a7f99; }.priorityBars .bar-P2 { background: #79817d; }.priorityBars .bar-P1 { background: #a5aba8; }
 .reportTablePanel { background: white; border: 1px solid #b8c1bd; }.reportTablePanel>header { min-height: 58px; padding: 11px 14px; display: flex; align-items: center; justify-content: space-between; gap: 18px; border-bottom: 1px solid var(--line); }.reportTablePanel>header span { color: var(--muted); font-size: 9px; font-weight: 800; text-transform: uppercase; }.reportTablePanel>header h2 { margin: 3px 0 0; font-size: 15px; }.reportTablePanel>header small { color: var(--muted); font-size: 10px; }.reportTable { min-width: 680px; }.reportTable th { border-bottom: 1px solid var(--ink); }.reportTablePanel>footer { padding: 11px 14px; color: var(--muted); border-top: 1px solid var(--line); font-size: 10px; }.reportTablePanel>footer strong { color: var(--ink); }
 .p0Workspace { display: grid; gap: 14px; }.p0Intro { margin: 0; padding: 11px 13px; color: #6f4a13; background: var(--amber-soft); border-left: 3px solid var(--amber); font-size: 12px; }
 .p0EvidenceGrid { display: grid; grid-template-columns: 1fr 64px 1fr; align-items: stretch; }.p0EvidenceGrid .evidenceCard { border-color: var(--ink); }.p0EvidenceGrid h3 { margin: 12px 0 5px; }.p0Image, .p0Text { width: 100%; height: 200px; min-height: 200px; }.p0Text { padding: 16px; display: flex; align-items: center; background: #f3f5f4; border: 1px solid var(--line); line-height: 1.6; }
@@ -422,14 +424,14 @@ h1, h2, h3, p { margin-top: 0; }
 .managerFeedbackBanner strong, .managerFeedbackBanner p { display: block; }.managerFeedbackBanner strong { font-size: 13px; }.managerFeedbackBanner p { margin: 4px 0 0; color: #53675e; font-size: 12px; line-height: 1.5; }
 .managerFeedbackBanner>button { width: 32px; height: 32px; display: grid; place-items: center; color: #61736b; border: 0; border-radius: 6px; background: transparent; }.managerFeedbackBanner>button:hover { color: #174e3d; background: rgba(23,107,80,.08); }
 @keyframes managerBannerIn { from { opacity: 0; transform: translateY(-5px); } to { opacity: 1; transform: translateY(0); } }
-.role-manager .managerP3InlineAlert { min-height: 76px; padding: 14px 16px; display: grid; grid-template-columns: 44px minmax(0,1fr) auto; align-items: center; gap: 13px; color: #8b1d18; background: #fff7f6; border: 1px solid #f3c8c3; border-left: 4px solid #c43f35; border-radius: 16px; box-shadow: 0 6px 20px rgba(196,63,53,.06); }
-.role-manager .managerP3InlineAlert>span { width: 44px; height: 44px; display: grid; place-items: center; color: white; background: #c43f35; border-radius: 12px; box-shadow: 0 5px 12px rgba(196,63,53,.18); }
-.role-manager .managerP3InlineAlert strong { display: block; color: #7f1d1d; font-size: 14px; }
-.role-manager .managerP3InlineAlert p { margin: 4px 0 0; color: #7a403c; font-size: 12px; line-height: 1.5; }
+.role-manager .managerEmergencyInlineAlert { min-height: 76px; padding: 14px 16px; display: grid; grid-template-columns: 44px minmax(0,1fr) auto; align-items: center; gap: 13px; color: #8b1d18; background: #fff7f6; border: 1px solid #f3c8c3; border-left: 4px solid #c43f35; border-radius: 16px; box-shadow: 0 6px 20px rgba(196,63,53,.06); }
+.role-manager .managerEmergencyInlineAlert>span { width: 44px; height: 44px; display: grid; place-items: center; color: white; background: #c43f35; border-radius: 12px; box-shadow: 0 5px 12px rgba(196,63,53,.18); }
+.role-manager .managerEmergencyInlineAlert strong { display: block; color: #7f1d1d; font-size: 14px; }
+.role-manager .managerEmergencyInlineAlert p { margin: 4px 0 0; color: #7a403c; font-size: 12px; line-height: 1.5; }
 .role-manager .managerUrgentBadge { color: #b91c1c; background: #fef2f2; border: 1px solid #fecaca; }
-.role-manager .managerUrgentAction, .role-manager .managerP3InlineAlert .button.danger { background: #c43f35; }
-.role-manager .managerUrgentAction:hover, .role-manager .managerP3InlineAlert .button.danger:hover { filter: none; background: #a8322a; }
-@media (max-width: 640px) { .role-manager .managerP3InlineAlert { grid-template-columns: 40px minmax(0,1fr); border-radius: 14px; }.role-manager .managerP3InlineAlert>span { width: 40px; height: 40px; }.role-manager .managerP3InlineAlert .button { grid-column: 2; width: fit-content; } }
+.role-manager .managerUrgentAction, .role-manager .managerEmergencyInlineAlert .button.danger { background: #c43f35; }
+.role-manager .managerUrgentAction:hover, .role-manager .managerEmergencyInlineAlert .button.danger:hover { filter: none; background: #a8322a; }
+@media (max-width: 640px) { .role-manager .managerEmergencyInlineAlert { grid-template-columns: 40px minmax(0,1fr); border-radius: 14px; }.role-manager .managerEmergencyInlineAlert>span { width: 40px; height: 40px; }.role-manager .managerEmergencyInlineAlert .button { grid-column: 2; width: fit-content; } }
 .residentAuthVisual { background-image: url('/auth/resident-login-v2.jpg'); background-position: 56% center; }
 .residentAuthVisual::before { background: rgba(24,43,36,.46); }
 .role-resident.residentHomePage .topbar, .role-resident.residentHomePage .pageHeading { display: none; }
@@ -810,7 +812,7 @@ h1, h2, h3, p { margin-top: 0; }
 .role-technician .residentSubpageTopbar { height: 56px; display: grid; grid-template-columns: 38px minmax(0,1fr) 38px; color: #202824; background: white; border-bottom: 1px solid #e2e6e4; }.role-technician .residentSubpageTopbar .backButton { color: #202824; background: transparent; border: 0; }.role-technician.residentSubpage .pageHeading { display: none; }.role-technician.residentSubpage .pageWrap { padding-top: 14px; }
 .technicianBell { position: relative; width: 38px; height: 38px; display: grid; place-items: center; }.technicianBell b { position: absolute; top: 1px; right: 1px; min-width: 16px; height: 16px; display: grid; place-items: center; color: #176b50; background: white; border-radius: 8px; font-size: 8px; }
 .technicianQueueSummary { min-height: 102px; margin-top: -36px; padding: 15px; position: relative; display: grid; grid-template-columns: 44px minmax(0,1fr); align-items: center; gap: 11px; background: white; border: 1px solid #dfe5e1; border-radius: 8px; box-shadow: 0 8px 22px rgba(24,32,29,.08); }.technicianQueueSummary>span { width: 44px; height: 44px; display: grid; place-items: center; color: #176b50; background: #e6f2ed; border-radius: 8px; }.technicianQueueSummary small, .technicianQueueSummary strong { display: block; }.technicianQueueSummary small { color: #75807a; font-size: 9px; }.technicianQueueSummary strong { margin-top: 3px; font-size: 14px; }.technicianQueueSummary p { margin: 4px 0 0; color: #7b8580; font-size: 9px; }
-.technicianQueueList { margin-top: 14px; display: grid; gap: 9px; }.technicianJobCard { min-height: 128px; display: grid; grid-template-columns: 4px minmax(0,1fr) 20px; align-items: center; overflow: hidden; background: white; border: 1px solid #dfe5e1; border-radius: 8px; }.technicianJobAccent { align-self: stretch; background: #286a9f; }.technicianJobCard.priority-P3 .technicianJobAccent { background: #c53b3b; }.technicianJobCard.priority-P2 .technicianJobAccent { background: #a76512; }.technicianJobMain { min-width: 0; padding: 13px 10px 13px 12px; }.technicianJobMain>header { display: flex; align-items: center; justify-content: space-between; gap: 8px; }.technicianJobMain h2 { margin: 9px 0 5px; font-size: 13px; }.technicianJobMain>p { margin: 0; display: flex; align-items: center; gap: 4px; color: #68726d; font-size: 10px; }.technicianJobMain>footer { margin-top: 12px; padding-top: 9px; display: flex; justify-content: space-between; gap: 8px; border-top: 1px solid #edf0ee; }.technicianJobMain>footer span, .technicianJobMain>footer strong { display: flex; align-items: center; gap: 4px; font-size: 9px; }.technicianJobMain>footer strong { color: #176b50; }.technicianJobMain>footer strong.overdue { color: #c53b3b; }.technicianJobCard>svg { color: #9ba39f; }
+.technicianQueueList { margin-top: 14px; display: grid; gap: 9px; }.technicianJobCard { min-height: 128px; display: grid; grid-template-columns: 4px minmax(0,1fr) 20px; align-items: center; overflow: hidden; background: white; border: 1px solid #dfe5e1; border-radius: 8px; }.technicianJobAccent { align-self: stretch; background: #286a9f; }.technicianJobCard.priority-P4 .technicianJobAccent { background: #c53b3b; }.technicianJobCard.priority-P3 .technicianJobAccent { background: #a76512; }.technicianJobMain { min-width: 0; padding: 13px 10px 13px 12px; }.technicianJobMain>header { display: flex; align-items: center; justify-content: space-between; gap: 8px; }.technicianJobMain h2 { margin: 9px 0 5px; font-size: 13px; }.technicianJobMain>p { margin: 0; display: flex; align-items: center; gap: 4px; color: #68726d; font-size: 10px; }.technicianJobMain>footer { margin-top: 12px; padding-top: 9px; display: flex; justify-content: space-between; gap: 8px; border-top: 1px solid #edf0ee; }.technicianJobMain>footer span, .technicianJobMain>footer strong { display: flex; align-items: center; gap: 4px; font-size: 9px; }.technicianJobMain>footer strong { color: #176b50; }.technicianJobMain>footer strong.overdue { color: #c53b3b; }.technicianJobCard>svg { color: #9ba39f; }
 .technicianDetailHero { padding: 15px; color: white; background: #176b50; border-radius: 8px; }.technicianDetailHero>div { display: flex; gap: 7px; }.technicianDetailHero h1 { margin: 12px 0 7px; font-size: 18px; line-height: 1.35; }.technicianDetailHero>p { margin: 0; display: flex; align-items: center; gap: 5px; color: rgba(255,255,255,.78); font-size: 10px; }
 .technicianDetailCard, .technicianAssignmentNote, .technicianActionPanel, .technicianUpdateForm { margin-top: 12px; overflow: hidden; background: white; border: 1px solid #dfe5e1; border-radius: 8px; }.technicianIncidentGallery { border-radius: 0; }.technicianDetailCard>div:last-child { padding: 13px; }.technicianDetailCard>div:last-child>span { color: #79837e; font-size: 8px; font-weight: 750; text-transform: uppercase; }.technicianDetailCard>div:last-child>p { margin: 6px 0 0; font-size: 11px; line-height: 1.55; }
 .technicianContact { padding: 13px; display: flex; align-items: center; justify-content: space-between; }.technicianContact>div { padding: 0 !important; }.technicianContact span, .technicianContact strong, .technicianContact small { display: block; }.technicianContact span { color: #7b8580; font-size: 8px; }.technicianContact strong { margin-top: 3px; font-size: 11px; }.technicianContact small { margin-top: 2px; color: #6e7873; font-size: 9px; }.technicianContact>a { padding: 8px 10px; color: #176b50; background: #e7f2ed; border-radius: 6px; font-size: 9px; font-weight: 750; }
@@ -867,7 +869,7 @@ html:has(.role-manager) { overflow-y: scroll; scrollbar-gutter: stable; }
 .managerNotificationDropdown { width: 360px; position: absolute; z-index: 80; right: 0; top: calc(100% + 12px); overflow: hidden; color: #151a17; background: white; border: 1px solid #e6ebe8; border-radius: 16px; box-shadow: 0 18px 50px rgba(20,35,27,.14); }
 .managerNotificationDropdown>header { min-height: 70px; padding: 14px 16px; display: flex; align-items: center; justify-content: space-between; gap: 12px; background: #fafbfa; border-bottom: 1px solid #edf0ee; }.managerNotificationDropdown>header strong, .managerNotificationDropdown>header span { display: block; }.managerNotificationDropdown>header strong { font-size: 14px; }.managerNotificationDropdown>header span { margin-top: 4px; color: #7d8781; font-size: 11px; }.managerNotificationDropdown>header>b { min-width: 24px; height: 24px; padding: 0 7px; display: grid; place-items: center; color: white; background: #157347; border-radius: 12px; font-size: 10px; }
 .managerNotificationList { max-height: 330px; overflow-y: auto; }.managerNotificationList>a { min-height: 68px; padding: 12px 16px; display: grid; grid-template-columns: 9px minmax(0,1fr); align-items: center; gap: 10px; border-bottom: 1px solid #f0f2f0; transition: background .15s ease; }.managerNotificationList>a:hover { background: #f7faf8; }.managerNotificationList>a strong, .managerNotificationList>a small { display: block; }.managerNotificationList>a strong { font-size: 12px; }.managerNotificationList>a small { margin-top: 5px; overflow: hidden; color: #7d8781; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
-.priorityDot { width: 8px; height: 8px; display: block; background: #4f8fd8; border-radius: 50%; }.priorityDot-P3 { background: #e96c62; }.priorityDot-P2 { background: #f5b942; }.priorityDot-P0 { background: #8b6aac; }
+.priorityDot { width: 8px; height: 8px; display: block; background: #4f8fd8; border-radius: 50%; }.priorityDot-P5 { background: #e96c62; }.priorityDot-P4 { background: #f5b942; }.priorityDot-P3 { background: #0f766e; }
 .managerNotificationEmpty { min-height: 130px; display: grid; place-items: center; align-content: center; gap: 9px; color: #929b96; font-size: 11px; }.managerNotificationEmpty svg { color: #a8b0ac; }
 .managerNotificationAll { min-height: 46px; display: flex; align-items: center; justify-content: center; color: #0f5a3c; background: #f1f8f4; border-top: 1px solid #e3ede8; font-size: 11px; font-weight: 720; }.managerNotificationAll:hover { background: #e8f4ed; }
 .managerNewTicketToast { width: min(380px,calc(100vw - 32px)); min-height: 92px; padding: 14px; position: fixed; z-index: 100; right: 24px; top: 24px; display: grid; grid-template-columns: 42px minmax(0,1fr) 30px; align-items: start; gap: 11px; color: #173f31; background: white; border: 1px solid #cfe3da; border-radius: 16px; box-shadow: 0 18px 50px rgba(20,55,41,.16); animation: managerTicketToastIn .22s ease-out; }.managerNewTicketToast>span { width: 42px; height: 42px; display: grid; place-items: center; color: white; background: #157347; border-radius: 12px; }.managerNewTicketToast strong { display: block; font-size: 13px; }.managerNewTicketToast p { margin: 5px 0 8px; overflow: hidden; color: #6f7d76; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }.managerNewTicketToast a { color: #0f5a3c; font-size: 11px; font-weight: 750; }.managerNewTicketToast>button { width: 30px; height: 30px; display: grid; place-items: center; color: #78847e; background: #f5f7f6; border: 0; border-radius: 50%; }.managerNewTicketToast>button:hover { color: #173f31; background: #eaf1ed; }
@@ -1240,9 +1242,9 @@ html:has(.role-manager) { overflow-y: scroll; scrollbar-gutter: stable; }
   border-radius: 7px 7px 2px 2px;
 }
 .role-manager .reportBarItem:nth-child(even) .reportBar { background: #83ae99; }
-.role-manager .priorityBars .bar-P3 { background: #c94b48; }
-.role-manager .priorityBars .bar-P2 { background: #d8963b; }
-.role-manager .priorityBars .bar-P1 { background: #3c8c69; }
+.role-manager .priorityBars .bar-P5 { background: #c94b48; }
+.role-manager .priorityBars .bar-P4 { background: #d8963b; }
+.role-manager .priorityBars .bar-P3 { background: #3c8c69; }
 .role-manager .reportTablePanel,
 .role-manager .reportExportPanel { margin-top: 16px; overflow: hidden; background: white; border: 1px solid var(--manager-border); }
 .role-manager .reportTablePanel>header,
@@ -2230,38 +2232,38 @@ html:has(.role-manager) { overflow-y: scroll; scrollbar-gutter: stable; }
 .role-manager .managerManualDuplicateActions { display: flex; flex-wrap: wrap; gap: 10px; }
 /* The emergency gate. Deliberately the loudest block on the page: it is the
    one panel where doing nothing keeps a five-minute-SLA report unpublished. */
-.role-manager .managerP3Review { display: grid; gap: 10px; }
-.role-manager .managerManualP3 { border-color: #f1cfcc; box-shadow: 0 5px 18px rgba(196,63,53,.055); }
-.role-manager .managerManualP3 .managerSurfaceHeader { min-height: 52px; padding-block: 10px; background: #fffafa; border-bottom-color: #f4dcda; }
-.role-manager .managerManualP3 .managerSurfaceIcon { color: #c43f35; background: #fdecea; }
-.role-manager .managerP3DecisionRow { padding: 12px; display: grid; grid-template-columns: 42px minmax(0,1fr) auto; align-items: center; gap: 12px; background: white; border: 1px solid #f0c2bd; border-left: 4px solid #c43f35; border-radius: 12px; }
-.role-manager .managerP3DecisionRow>span { width: 42px; height: 42px; display: grid; place-items: center; color: white; background: #c43f35; border-radius: 10px; }
-.role-manager .managerP3DecisionRow strong { display: block; color: #1f2a24; font-size: 15px; }
-.role-manager .managerP3DecisionRow p { margin: 3px 0 8px; color: #6f4b48; font-size: 12px; line-height: 1.45; }
-.role-manager .managerP3DecisionRow div>div { display: flex; flex-wrap: wrap; gap: 6px; }
-.role-manager .managerP3DecisionRow b,
-.role-manager .managerP3DecisionRow small { min-height: 23px; padding: 4px 8px; display: inline-flex; align-items: center; color: #6f332e; background: #fff2f0; border: 1px solid #f3d4d1; border-radius: 999px; font-size: 10px; font-weight: 720; }
-.role-manager .managerP3DecisionRow b { color: white; background: #c43f35; border-color: #c43f35; }
-.role-manager .managerP3Note { margin: 0; padding: 10px 12px; background: #fff8f7; border: 1px solid #e6c4bf; border-radius: 9px; color: #7c3a32; font-size: 12px; line-height: 1.6; }
-.role-manager .managerP3Actions { display: grid; gap: 9px; padding: 14px; background: #fbfcfb; border: 1px solid #e2e7e4; border-radius: 10px; grid-template-columns: minmax(0,1fr) auto; align-items: center; background: #fff8f7; border-color: #f0c2bd; }
-.role-manager .managerP3Actions strong,
-.role-manager .managerP3DowngradeHeader strong { display: block; color: #23302a; font-size: 13px; }
-.role-manager .managerP3Actions small,
-.role-manager .managerP3DowngradeHeader small { display: block; margin-top: 4px; }
-.role-manager .managerP3Actions small,
-.role-manager .managerP3Downgrade small { color: #6d7a74; font-size: 11px; line-height: 1.55; }
-.role-manager .managerP3Actions .button { justify-self: end; min-width: 184px; }
-.role-manager .managerP3Primary { min-width: 138px; background: #c43f35; }
-.role-manager .managerP3Primary:hover { filter: none; background: #a8322a; }
-.role-manager .managerP3Downgrade { overflow: hidden; background: #fbfcfb; border: 1px solid #e2e8e4; border-radius: 10px; }
-.role-manager .managerP3Downgrade summary { min-height: 42px; padding: 0 12px; display: flex; align-items: center; color: #51615a; font-size: 12px; font-weight: 720; cursor: pointer; }
-.role-manager .managerP3DowngradeFields { padding: 0 12px 12px; display: grid; grid-template-columns: auto minmax(0,1fr) auto; align-items: end; gap: 9px; }
-.role-manager .managerP3Downgrade label { display: grid; gap: 5px; font-size: 11px; color: #34413b; }
-.role-manager .managerP3Downgrade select { padding: 6px 9px; border: 1px solid #d5ddd8; border-radius: 7px; background: #fff; font-size: 12px; }
-.role-manager .managerP3Downgrade textarea { width: 100%; min-height: 40px; padding: 9px 11px; border: 1px solid #d5ddd8; border-radius: 8px; font: inherit; font-size: 12px; resize: vertical; }
-.role-manager .managerP3Downgrade .button { min-height: 40px; justify-self: start; }
-@media (max-width: 700px) { .role-manager .managerP3DecisionRow { grid-template-columns: 42px minmax(0,1fr); }.role-manager .managerP3Primary { grid-column: 2; width: fit-content; } .role-manager .managerP3DowngradeFields { grid-template-columns: 1fr; } }
-@media (max-width: 560px) { .role-manager .managerP3Actions { grid-template-columns: 1fr; }.role-manager .managerP3Actions .button { width: 100%; justify-self: stretch; } }
+.role-manager .managerEmergencyReview { display: grid; gap: 10px; }
+.role-manager .managerManualEmergency { border-color: #f1cfcc; box-shadow: 0 5px 18px rgba(196,63,53,.055); }
+.role-manager .managerManualEmergency .managerSurfaceHeader { min-height: 52px; padding-block: 10px; background: #fffafa; border-bottom-color: #f4dcda; }
+.role-manager .managerManualEmergency .managerSurfaceIcon { color: #c43f35; background: #fdecea; }
+.role-manager .managerEmergencyDecisionRow { padding: 12px; display: grid; grid-template-columns: 42px minmax(0,1fr) auto; align-items: center; gap: 12px; background: white; border: 1px solid #f0c2bd; border-left: 4px solid #c43f35; border-radius: 12px; }
+.role-manager .managerEmergencyDecisionRow>span { width: 42px; height: 42px; display: grid; place-items: center; color: white; background: #c43f35; border-radius: 10px; }
+.role-manager .managerEmergencyDecisionRow strong { display: block; color: #1f2a24; font-size: 15px; }
+.role-manager .managerEmergencyDecisionRow p { margin: 3px 0 8px; color: #6f4b48; font-size: 12px; line-height: 1.45; }
+.role-manager .managerEmergencyDecisionRow div>div { display: flex; flex-wrap: wrap; gap: 6px; }
+.role-manager .managerEmergencyDecisionRow b,
+.role-manager .managerEmergencyDecisionRow small { min-height: 23px; padding: 4px 8px; display: inline-flex; align-items: center; color: #6f332e; background: #fff2f0; border: 1px solid #f3d4d1; border-radius: 999px; font-size: 10px; font-weight: 720; }
+.role-manager .managerEmergencyDecisionRow b { color: white; background: #c43f35; border-color: #c43f35; }
+.role-manager .managerEmergencyNote { margin: 0; padding: 10px 12px; background: #fff8f7; border: 1px solid #e6c4bf; border-radius: 9px; color: #7c3a32; font-size: 12px; line-height: 1.6; }
+.role-manager .managerEmergencyActions { display: grid; gap: 9px; padding: 14px; background: #fbfcfb; border: 1px solid #e2e7e4; border-radius: 10px; grid-template-columns: minmax(0,1fr) auto; align-items: center; background: #fff8f7; border-color: #f0c2bd; }
+.role-manager .managerEmergencyActions strong,
+.role-manager .managerEmergencyDowngradeHeader strong { display: block; color: #23302a; font-size: 13px; }
+.role-manager .managerEmergencyActions small,
+.role-manager .managerEmergencyDowngradeHeader small { display: block; margin-top: 4px; }
+.role-manager .managerEmergencyActions small,
+.role-manager .managerEmergencyDowngrade small { color: #6d7a74; font-size: 11px; line-height: 1.55; }
+.role-manager .managerEmergencyActions .button { justify-self: end; min-width: 184px; }
+.role-manager .managerEmergencyPrimary { min-width: 138px; background: #c43f35; }
+.role-manager .managerEmergencyPrimary:hover { filter: none; background: #a8322a; }
+.role-manager .managerEmergencyDowngrade { overflow: hidden; background: #fbfcfb; border: 1px solid #e2e8e4; border-radius: 10px; }
+.role-manager .managerEmergencyDowngrade summary { min-height: 42px; padding: 0 12px; display: flex; align-items: center; color: #51615a; font-size: 12px; font-weight: 720; cursor: pointer; }
+.role-manager .managerEmergencyDowngradeFields { padding: 0 12px 12px; display: grid; grid-template-columns: auto minmax(0,1fr) auto; align-items: end; gap: 9px; }
+.role-manager .managerEmergencyDowngrade label { display: grid; gap: 5px; font-size: 11px; color: #34413b; }
+.role-manager .managerEmergencyDowngrade select { padding: 6px 9px; border: 1px solid #d5ddd8; border-radius: 7px; background: #fff; font-size: 12px; }
+.role-manager .managerEmergencyDowngrade textarea { width: 100%; min-height: 40px; padding: 9px 11px; border: 1px solid #d5ddd8; border-radius: 8px; font: inherit; font-size: 12px; resize: vertical; }
+.role-manager .managerEmergencyDowngrade .button { min-height: 40px; justify-self: start; }
+@media (max-width: 700px) { .role-manager .managerEmergencyDecisionRow { grid-template-columns: 42px minmax(0,1fr); }.role-manager .managerEmergencyPrimary { grid-column: 2; width: fit-content; } .role-manager .managerEmergencyDowngradeFields { grid-template-columns: 1fr; } }
+@media (max-width: 560px) { .role-manager .managerEmergencyActions { grid-template-columns: 1fr; }.role-manager .managerEmergencyActions .button { width: 100%; justify-self: stretch; } }
 .role-manager .managerManualDecisionGrid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 12px; }
 .role-manager .managerManualDecisionCard { min-width: 0; padding: 15px; display: grid; align-content: start; gap: 13px; background: #fbfcfb; border: 1px solid #e2e7e4; border-radius: 10px; }
 .role-manager .managerManualDecisionCard.active { background: #f4faf7; border-color: #75aa92; box-shadow: 0 0 0 2px rgba(22,128,85,.08); }
@@ -2685,12 +2687,13 @@ button:active:not(:disabled), .button:active:not(:disabled) { transform: scale(.
   box-shadow: 0 0 0 2px rgba(37, 99, 235, .12);
 }
 .badge { min-height: 24px; padding: 3px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; }
-.status-new, .status-approved, .priority-P1 { color: #1d4ed8; background: #eff6ff; }
+.status-new, .status-approved, .priority-P1, .priority-P2 { color: #1d4ed8; background: #eff6ff; }
 .status-in_progress { color: #1d4ed8; background: #eff6ff; }
 .status-completed { color: #166534; background: #f0fdf4; }
-.status-p0_review, .status-needs_info, .priority-P2 { color: #92400e; background: #fffbeb; }
+.status-p0_review, .status-needs_info, .priority-P4 { color: #92400e; background: #fffbeb; }
 .status-cancelled { color: #4b5563; background: #f3f4f6; }
-.status-cannot_resolve, .priority-P3 { color: #b91c1c; background: #fef2f2; }
+.status-cannot_resolve, .priority-P5 { color: #b91c1c; background: #fef2f2; }
+.priority-P3 { color: #0f766e; background: #ecfdf5; }
 .priority-P0 { color: #4b5563; background: #f3f4f6; }
 .alert { border: 1px solid #fde68a; border-radius: 8px; }
 .alert.error { border-color: #fecaca; }
@@ -3013,22 +3016,22 @@ button:active:not(:disabled), .button:active:not(:disabled) { transform: scale(.
 .role-technician .technicianDetailHero { padding: 14px 16px; }
 .role-technician .technicianDetailHero h1 { margin: 8px 0 5px; }
 .role-technician .technicianDetailHero > .technicianLocation { color: var(--muted); }
-.role-technician .technicianDetailHero.techP3Urgent {
+.role-technician .technicianDetailHero.techUrgent {
   color: #7a271a;
   border: 1px solid #fda29b;
-  animation: technicianP3UrgentPulse 1.8s ease-in-out infinite;
+  animation: technicianUrgentPulse 1.8s ease-in-out infinite;
 }
-.role-technician .technicianDetailHero.techP3Urgent h1,
-.role-technician .technicianDetailHero.techP3Urgent > .technicianLocation {
+.role-technician .technicianDetailHero.techUrgent h1,
+.role-technician .technicianDetailHero.techUrgent > .technicianLocation {
   color: #7a271a;
 }
-.role-technician .technicianDetailHero.techP3Urgent .priority-P3 {
+.role-technician .technicianDetailHero.techUrgent .priority-P4 {
   color: #b42318;
   background: #fff1f0;
   border-color: #fda29b;
-  animation: technicianP3BadgePulse 1.8s ease-in-out infinite;
+  animation: technicianUrgentBadgePulse 1.8s ease-in-out infinite;
 }
-.role-technician .technicianDetailHero.techP3Urgent .technicianSlaCallout {
+.role-technician .technicianDetailHero.techUrgent .technicianSlaCallout {
   color: #b42318;
   background: #fffafa;
   border-color: #fda29b;
@@ -3052,8 +3055,8 @@ button:active:not(:disabled), .button:active:not(:disabled) { transform: scale(.
 .role-technician .technicianSlaCallout svg { flex: none; }
 .role-technician .technicianSlaCallout.overdue { color: #b91c1c; background: #fef2f2; border-color: #fca5a5; border-left-color: #dc2626; }
 @media (prefers-reduced-motion: reduce) {
-  .role-technician .technicianDetailHero.techP3Urgent,
-  .role-technician .technicianDetailHero.techP3Urgent .priority-P3 {
+  .role-technician .technicianDetailHero.techUrgent,
+  .role-technician .technicianDetailHero.techUrgent .priority-P4 {
     animation: none;
   }
 }
@@ -3882,10 +3885,10 @@ button:active:not(:disabled), .button:active:not(:disabled) { transform: scale(.
 .role-manager .ticketPanelStatus { margin-bottom: 14px; display: flex; align-items: center; gap: 8px; }.role-manager .ticketImageThumb { width: min(100%,220px); aspect-ratio: 4/3; padding: 0; position: relative; display: block; overflow: hidden; color: #667085; background: #f8fafc; border: 1px solid #dfe3e8; border-radius: 8px; cursor: pointer; }.role-manager .ticketImageThumb:disabled { cursor: default; }.role-manager .ticketImageThumb img { width: 100%; height: 100%; display: block; object-fit: cover; }.role-manager .ticketImageThumb>span { width: 100%; height: 100%; display: grid; place-content: center; gap: 6px; font-size: 11px; }.role-manager .ticketImageThumb b { padding: 5px 7px; position: absolute; right: 6px; bottom: 6px; display: inline-flex; align-items: center; gap: 4px; color: white; background: rgba(17,24,39,.78); border-radius: 5px; font-size: 10px; }
 .role-manager .ticketPanelSection { margin-top: 18px; }.role-manager .ticketPanelSection>span, .role-manager .ticketPanelMeta>div>span { display: block; color: #667085; font-size: 10px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }.role-manager .ticketPanelDescription { margin: 7px 0 0; color: #344054; font-size: 13px; line-height: 1.55; }.role-manager .ticketPanelMeta { margin-top: 18px; display: grid; grid-template-columns: 1fr 1fr; gap: 16px 12px; }.role-manager .ticketPanelMeta strong { margin-top: 4px; display: block; color: #1f2937; font-size: 12px; line-height: 1.4; }.role-manager .ticketPanelMeta .badge { margin-top: 5px; }/* The emergency gate, as it appears in the side panel: a statement of why
    the usual buttons are absent, and one link to where the decision is made. */
-.role-manager .ticketPanelP3 { margin-top: 18px; padding: 12px 13px; background: #fff8f7; border: 1px solid #e6c4bf; border-radius: 9px; }
-.role-manager .ticketPanelP3 p { margin: 0; display: flex; align-items: flex-start; gap: 8px; color: #7c3a32; font-size: 12px; line-height: 1.55; font-weight: 600; }
-.role-manager .ticketPanelP3 p svg { flex: 0 0 auto; margin-top: 2px; }
-.role-manager .ticketPanelP3 small { margin-top: 7px; display: block; color: #8a5b54; font-size: 11px; line-height: 1.55; }
+.role-manager .ticketPanelEmergency { margin-top: 18px; padding: 12px 13px; background: #fff8f7; border: 1px solid #e6c4bf; border-radius: 9px; }
+.role-manager .ticketPanelEmergency p { margin: 0; display: flex; align-items: flex-start; gap: 8px; color: #7c3a32; font-size: 12px; line-height: 1.55; font-weight: 600; }
+.role-manager .ticketPanelEmergency p svg { flex: 0 0 auto; margin-top: 2px; }
+.role-manager .ticketPanelEmergency small { margin-top: 7px; display: block; color: #8a5b54; font-size: 11px; line-height: 1.55; }
 .role-manager .ticketPanelActions { padding: 12px 14px; display: grid; gap: 8px; border-top: 1px solid #eaecf0; background: #fff; }.role-manager .ticketPanelActions .button { width: 100%; justify-content: center; }
 .ticketLightbox { position: fixed; z-index: 120; inset: 0; padding: 48px; display: grid; place-items: center; background: rgba(16,24,40,.85); }.ticketLightbox img { max-width: min(92vw,1000px); max-height: 85vh; object-fit: contain; }.ticketLightbox .iconButton, .ticketLightboxPrev, .ticketLightboxNext { position: absolute; color: white; background: rgba(255,255,255,.14); border: 1px solid rgba(255,255,255,.4); }.ticketLightbox .iconButton { top: 18px; right: 18px; }.ticketLightboxPrev, .ticketLightboxNext { width: 38px; height: 42px; top: calc(50% - 21px); display: grid; place-items: center; }.ticketLightboxPrev { left: 18px; }.ticketLightboxNext { right: 18px; }
 .role-manager .managerTicketTable tbody tr[role="button"], .role-manager .clusterDetailTicket[role="button"] { cursor: pointer; }.role-manager .managerTicketTable tbody tr[role="button"]:hover { background: #eff6ff; }.role-manager .managerTicketTable tbody tr[role="button"].selected { background: #eaf3ff; box-shadow: inset 4px 0 #2563eb; }.role-manager .managerTicketTable tbody tr[role="button"]:focus-visible, .role-manager .clusterDetailTicket[role="button"]:focus-visible { outline: 2px solid #60a5fa; outline-offset: -2px; }
@@ -4110,38 +4113,38 @@ button:active:not(:disabled), .button:active:not(:disabled) { transform: scale(.
   box-shadow: 0 5px 14px rgba(25,83,150,.055);
 }
 .role-technician.technicianHomePage .technicianJobCard:hover { background: white; border-color: #93b8eb; box-shadow: 0 7px 18px rgba(25,83,150,.11); }
-@keyframes technicianP3UrgentPulse {
+@keyframes technicianUrgentPulse {
   0%, 100% { background-color: #fff7f6; border-color: #fda29b; box-shadow: 0 5px 14px rgba(217,45,32,.08), inset 4px 0 0 #d92d20; }
   50% { background-color: #fee4e2; border-color: #f97066; box-shadow: 0 8px 20px rgba(217,45,32,.16), inset 4px 0 0 #d92d20; }
 }
-@keyframes technicianP3BadgePulse {
+@keyframes technicianUrgentBadgePulse {
   0%, 100% { box-shadow: 0 0 0 0 rgba(217,45,32,.18); }
   50% { box-shadow: 0 0 0 4px rgba(217,45,32,.1); }
 }
-.role-technician.technicianHomePage .technicianJobCard.techP3Urgent {
-  animation: technicianP3UrgentPulse 1.8s ease-in-out infinite;
+.role-technician.technicianHomePage .technicianJobCard.techUrgent {
+  animation: technicianUrgentPulse 1.8s ease-in-out infinite;
 }
-.role-technician.technicianHomePage .technicianJobCard.techP3Urgent:hover {
+.role-technician.technicianHomePage .technicianJobCard.techUrgent:hover {
   background: #fff1f0;
   border-color: #f97066;
   box-shadow: 0 8px 20px rgba(217,45,32,.16), inset 4px 0 0 #d92d20;
 }
-.role-technician.technicianHomePage .technicianJobCard.techP3Urgent .priority-P3 {
+.role-technician.technicianHomePage .technicianJobCard.techUrgent .priority-P4 {
   color: #b42318;
   background: #fff1f0;
   border-color: #fda29b;
-  animation: technicianP3BadgePulse 1.8s ease-in-out infinite;
+  animation: technicianUrgentBadgePulse 1.8s ease-in-out infinite;
 }
-.role-technician.technicianHomePage .technicianJobCard.techP3Urgent h2 {
+.role-technician.technicianHomePage .technicianJobCard.techUrgent h2 {
   color: #7a271a;
 }
-.role-technician.technicianHomePage .technicianJobCard.techP3Urgent .techOrderBadge.now {
+.role-technician.technicianHomePage .technicianJobCard.techUrgent .techOrderBadge.now {
   color: white;
   background: #d92d20;
 }
 @media (prefers-reduced-motion: reduce) {
-  .role-technician.technicianHomePage .technicianJobCard.techP3Urgent,
-  .role-technician.technicianHomePage .technicianJobCard.techP3Urgent .priority-P3 {
+  .role-technician.technicianHomePage .technicianJobCard.techUrgent,
+  .role-technician.technicianHomePage .technicianJobCard.techUrgent .priority-P4 {
     animation: none;
   }
 }
@@ -4333,6 +4336,12 @@ button:active:not(:disabled), .button:active:not(:disabled) { transform: scale(.
 .role-manager .ticketPanelAiNote { margin-top: 16px; padding: 11px 12px; background: #f5f8ff; border: 1px solid #dbe6fb; border-radius: 10px; }
 .role-manager .ticketPanelAiNote header { display: flex; align-items: center; gap: 7px; color: #1d4ed8; font-size: 10px; font-weight: 750; letter-spacing: .04em; text-transform: uppercase; }
 .role-manager .ticketPanelAiNote p { margin: 7px 0 0; color: #344054; font-size: 12px; line-height: 1.55; }
+/* A technical failure, not a classification. Amber rather than the AI note's
+   blue so it never reads as a conclusion the Agent reached. */
+.role-manager .ticketPanelAiError { margin-top: 16px; padding: 11px 12px; background: #fffaf2; border: 1px solid #fbe3c0; border-radius: 10px; }
+.role-manager .ticketPanelAiError header { display: flex; align-items: center; gap: 7px; color: #b54708; font-size: 10px; font-weight: 750; letter-spacing: .04em; text-transform: uppercase; }
+.role-manager .ticketPanelAiError p { margin: 7px 0 0; color: #344054; font-size: 12px; line-height: 1.55; }
+.role-manager .ticketPanelAiError em { display: inline-block; margin-top: 7px; color: #93370d; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; font-style: normal; }
 .role-manager .ticketPanelWarning { margin: 14px 0 0; padding: 9px 11px; color: #92400e; background: #fffbeb; border-radius: 8px; font-size: 12px; }
 .role-manager .ticketPanelTimeline { margin: 8px 0 0; padding: 0; display: grid; gap: 9px; list-style: none; }
 .role-manager .ticketPanelTimeline li { padding-left: 11px; border-left: 2px solid #e4e7ec; }
@@ -4646,46 +4655,47 @@ button:active:not(:disabled), .button:active:not(:disabled) { transform: scale(.
 /* Selection is the only tint in the table, so it stays unmistakable. */
 .role-manager .mdRow.selected td { background: #f4f8ff; }
 .role-manager .mdRow.selected td:first-child { box-shadow: inset 3px 0 0 #2563eb; }
-@keyframes managerP3UrgentRowPulse {
+.role-manager .mdRow.needsAttention td:first-child { box-shadow: inset 4px 0 0 #d92d20; }
+@keyframes managerEmergencyUrgentRowPulse {
   0%, 100% { background-color: #fff7f6; }
   50% { background-color: #fee4e2; }
 }
-@keyframes managerP3UrgentBadgePulse {
+@keyframes managerEmergencyUrgentBadgePulse {
   0%, 100% { box-shadow: 0 0 0 0 rgba(217,45,32,.18); }
   50% { box-shadow: 0 0 0 4px rgba(217,45,32,.08); }
 }
-.role-manager .mdRow.p3Urgent,
-.role-manager .mdRow.p3Urgent td {
-  animation: managerP3UrgentRowPulse 1.8s ease-in-out infinite;
+.role-manager .mdRow.emergencyUrgent,
+.role-manager .mdRow.emergencyUrgent td {
+  animation: managerEmergencyUrgentRowPulse 1.8s ease-in-out infinite;
 }
-.role-manager .mdRow.p3Urgent td {
+.role-manager .mdRow.emergencyUrgent td {
   border-bottom-color: #fee4e2;
 }
-.role-manager .mdRow.p3Urgent:hover td {
+.role-manager .mdRow.emergencyUrgent:hover td {
   background: #fff1f0;
 }
-.role-manager .mdRow.p3Urgent td:first-child,
-.role-manager .mdRow.p3Urgent.selected td:first-child {
+.role-manager .mdRow.emergencyUrgent td:first-child,
+.role-manager .mdRow.emergencyUrgent.selected td:first-child {
   box-shadow: inset 4px 0 0 #d92d20;
 }
-.role-manager .mdRow.p3Urgent .mdPill.danger {
+.role-manager .mdRow.emergencyUrgent .mdPill.danger {
   color: #b42318;
   background: #fff1f0;
   border: 1px solid #fda29b;
-  animation: managerP3UrgentBadgePulse 1.8s ease-in-out infinite;
+  animation: managerEmergencyUrgentBadgePulse 1.8s ease-in-out infinite;
 }
-.role-manager .mdRow.p3Urgent .mdPriority-P3 {
+.role-manager .mdRow.emergencyUrgent .mdPriority-P5 {
   color: #b42318;
   font-weight: 780;
 }
-.role-manager .mdRow.p3Urgent .mdPriority-P3 i {
+.role-manager .mdRow.emergencyUrgent .mdPriority-P5 i {
   border-radius: 999px;
   box-shadow: 0 0 0 4px rgba(217,45,32,.12);
 }
 @media (prefers-reduced-motion: reduce) {
-  .role-manager .mdRow.p3Urgent,
-  .role-manager .mdRow.p3Urgent td,
-  .role-manager .mdRow.p3Urgent .mdPill.danger {
+  .role-manager .mdRow.emergencyUrgent,
+  .role-manager .mdRow.emergencyUrgent td,
+  .role-manager .mdRow.emergencyUrgent .mdPill.danger {
     animation: none;
   }
 }
@@ -4697,12 +4707,16 @@ button:active:not(:disabled), .button:active:not(:disabled) { transform: scale(.
 
 .role-manager .mdPriority { display: inline-flex; align-items: center; gap: 6px; font-size: 14px; }
 .role-manager .mdPriority i { width: 8px; height: 8px; flex: none; border-radius: 2px; }
-.role-manager .mdPriority-P3 { color: #b42318; font-weight: 650; }
-.role-manager .mdPriority-P3 i { background: #d92d20; }
-.role-manager .mdPriority-P2 { color: #b54708; font-weight: 650; }
-.role-manager .mdPriority-P2 i { background: #dc6803; }
-.role-manager .mdPriority-P1 { color: #475467; font-weight: 550; }
-.role-manager .mdPriority-P1 i { background: #98a2b3; }
+.role-manager .mdPriority-P5 { color: #b42318; font-weight: 650; }
+.role-manager .mdPriority-P5 i { background: #d92d20; }
+.role-manager .mdPriority-P4 { color: #b54708; font-weight: 650; }
+.role-manager .mdPriority-P4 i { background: #dc6803; }
+.role-manager .mdPriority-P3 { color: #0f766e; font-weight: 600; }
+.role-manager .mdPriority-P3 i { background: #0f766e; }
+/* P1 and P2 share a tone on purpose: both mean "queued, this is fine", and a
+   separate colour would spend a signal on a distinction nobody acts on. */
+.role-manager .mdPriority-P2, .role-manager .mdPriority-P1 { color: #475467; font-weight: 550; }
+.role-manager .mdPriority-P2 i, .role-manager .mdPriority-P1 i { background: #98a2b3; }
 
 .role-manager .mdPill { max-width: 100%; padding: 4px 10px; display: inline-block; overflow: hidden; border-radius: 999px; font-size: 13px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; vertical-align: middle; }
 .role-manager .mdTable td:nth-child(6) .mdPill {
@@ -4789,7 +4803,7 @@ button:active:not(:disabled), .button:active:not(:disabled) { transform: scale(.
   .role-manager .mdTable thead { display: none; }
   .role-manager .mdTable tbody { display: grid; gap: 10px; }
   .role-manager .mdRow { padding: 14px; display: grid; grid-template-columns: 1fr 1fr; gap: 12px; background: #fff; border: 1px solid #ebedf0; border-radius: 12px; }
-  .role-manager .mdRow.p3Urgent { background: #fff7f6; border-color: #fda29b; box-shadow: inset 4px 0 0 #d92d20; }
+  .role-manager .mdRow.emergencyUrgent { background: #fff7f6; border-color: #fda29b; box-shadow: inset 4px 0 0 #d92d20; }
   .role-manager .mdRow.selected { border-color: #2563eb; }
   .role-manager .mdTable td { width: auto !important; min-width: 0; height: auto; padding: 0 !important; display: block; background: none !important; border: 0; box-shadow: none !important; }
   .role-manager .mdTable td::before { content: attr(data-label); margin-bottom: 5px; display: block; color: #9ca3af; font-size: 11px; font-weight: 600; }
@@ -4837,3 +4851,82 @@ button:active:not(:disabled), .button:active:not(:disabled) { transform: scale(.
 .technicianJobCard.techJobNow { border-color: #b9d0f5; box-shadow: 0 0 0 1px #b9d0f5 inset; }
 .technicianJobCard .techPlannedStart { display: flex; align-items: center; gap: 6px; color: #175cd3; font-size: 12px; }
 .technicianJobCard .techRiskWarning, .role-manager .techRiskWarning { display: inline-flex; align-items: center; gap: 5px; color: #b54708; font-size: 11px; }
+
+/* Mô phỏng công suất & SLA (/manager/simulation). Read-only planning screen:
+   one JSON editor, then three scenario columns. */
+.simEditor textarea { min-height: 320px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 11px; line-height: 1.6; white-space: pre; tab-size: 2; }
+.simActions { display: flex; align-items: center; gap: 8px; }
+.simUpload { position: relative; overflow: hidden; min-height: 34px; padding: 0 12px; display: inline-flex; align-items: center; gap: 6px; color: var(--manager-primary, #167354); background: #eef7f2; border-radius: 999px; font-size: 11px; font-weight: 700; cursor: pointer; }
+.simUpload input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+.simRunBar { margin-top: 18px; padding-top: 16px; display: flex; flex-wrap: wrap; align-items: center; gap: 10px; border-top: 1px solid var(--line); }
+.simDraftBanner { margin: 14px 0 0; padding: 11px 13px; display: flex; align-items: center; gap: 9px; color: #8a5a12; background: #fdf6e7; border: 1px solid #f0dcae; border-radius: 10px; font-size: 12px; line-height: 1.5; }
+.simError { margin: 14px 0 0; padding: 11px 13px; display: flex; align-items: center; gap: 9px; color: #b42318; background: #fef3f2; border: 1px solid #fecdca; border-radius: 10px; font-size: 12px; font-weight: 650; }
+.simWarnings { display: grid; gap: 8px; }
+.simWarnings p { margin: 0; padding: 10px 13px; display: flex; align-items: center; gap: 9px; color: #8a5a12; background: #fdf6e7; border: 1px solid #f0dcae; border-radius: 10px; font-size: 12px; line-height: 1.5; }
+.simCompareTable { min-width: 860px; }
+.simCompareTable th { vertical-align: top; }
+.simCompareTable th small { margin-top: 4px; display: block; color: var(--muted); font-size: 10px; font-weight: 500; text-transform: none; line-height: 1.4; }
+.simColBadge { margin-left: 7px; }
+.simComplianceRow td { background: #fafcfb; }
+.simComplianceRow strong { font-size: 13px; }
+.simLate { color: #b42318; }
+.simFootnote { margin: 12px 14px 2px; }
+.simScenarioTabs { display: inline-flex; flex-wrap: wrap; gap: 4px; padding: 4px; background: white; border: 1px solid #e7eae7; border-radius: 14px; width: fit-content; }
+.simScenarioTabs button { min-height: 38px; padding: 0 18px; color: #5f6a64; background: transparent; border: 0; border-radius: 11px; font-size: 12px; font-weight: 700; }
+.simScenarioTabs button.active { color: white; background: var(--manager-primary, #167354); }
+.simBadge { display: inline-flex; align-items: center; min-height: 25px; padding: 3px 9px; border-radius: 999px; font-size: 11px; font-weight: 700; white-space: nowrap; }
+.simBadge.good { color: #027a48; background: #ecfdf3; border: 1px solid #abefc6; }
+.simBadge.warn { color: #b54708; background: #fffaeb; border: 1px solid #fedf89; }
+.simBadge.bad { color: #b42318; background: #fef3f2; border: 1px solid #fecdca; }
+.simUtilBar { position: relative; min-width: 120px; height: 22px; display: flex; align-items: center; gap: 8px; }
+.simUtilBar span { flex: none; height: 8px; min-width: 2px; background: var(--manager-primary, #167354); border-radius: 999px; }
+.simUtilBar small { color: var(--muted); font-size: 11px; font-weight: 700; }
+@media (max-width: 620px) {
+  .simScenarioTabs { width: 100%; }.simScenarioTabs button { flex: 1; }.simActions { width: 100%; }
+}
+
+
+/* ---------------------------------------------------------------------------
+   Risk scoring v2: the breakdown behind a priority.
+
+   The screen exists so a manager can disagree with a number in a specific way,
+   so the criterion rows are the widest thing here and the total is a heading
+   rather than the whole story.
+   --------------------------------------------------------------------------- */
+.riskBreakdown { display: grid; gap: 10px; padding: 12px; border: 1px solid #e3e8e5; border-radius: 10px; background: #fbfcfb; }
+.riskBreakdownHead { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.riskBreakdownScore { font-size: 26px; font-weight: 700; letter-spacing: -0.02em; }
+.riskBreakdownHead small { color: #78827d; font-size: 11px; margin-left: 3px; }
+.riskBreakdownBands { display: grid; justify-items: end; gap: 3px; text-align: right; }
+.riskBreakdownBands small { color: #68726d; font-size: 10px; }
+.riskBreakdownNotice { display: flex; align-items: center; gap: 6px; margin: 0; padding: 7px 9px; border-radius: 7px; font-size: 11px; }
+.riskBreakdownNotice.bad { color: #b91c1c; background: #fef2f2; }
+.riskBreakdownTable { width: 100%; border-collapse: collapse; font-size: 11px; }
+.riskBreakdownTable th { text-align: left; padding: 4px 6px; color: #68726d; font-weight: 600; border-bottom: 1px solid #e8ecea; }
+.riskBreakdownTable td { padding: 5px 6px; border-bottom: 1px solid #f1f4f2; vertical-align: top; }
+.riskBreakdownTable td small { color: #97a09b; }
+.riskBreakdownTable tr.riskUnknown td { background: #fffdf5; }
+.riskBreakdownTable tr.riskUnknown em { color: #a76512; font-style: normal; }
+.riskBreakdownScope { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; font-size: 11px; }
+.riskBreakdownScope span { color: #68726d; }
+.riskBreakdownScope em { width: 100%; color: #a76512; font-style: normal; font-size: 10px; }
+.riskBreakdownBlockers { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.riskBreakdownBlockers li { display: flex; align-items: center; gap: 4px; padding: 3px 8px; border-radius: 999px; color: #b91c1c; background: #fef2f2; font-size: 10px; }
+.riskBreakdownEvidence { font-size: 11px; }
+.riskBreakdownEvidence summary { cursor: pointer; color: #68726d; }
+.riskBreakdownEvidence ul { margin: 3px 0 8px; padding-left: 18px; }
+.riskBreakdownFoot { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; color: #97a09b; font-size: 10px; }
+.riskBreakdownFoot em { width: 100%; font-style: normal; color: #68726d; }
+
+/* Scoring a report by hand: five selects, because the one dropdown they replace
+   had no answer two coordinators would give the same way. */
+.managerManualRiskForm { display: grid; gap: 9px; }
+.managerManualRiskIntro { margin: 0; color: #68726d; font-size: 11px; }
+.managerManualCriterion label small { color: #97a09b; font-weight: 400; }
+.managerManualBlockers { display: grid; gap: 5px; margin: 4px 0 0; padding: 9px 11px; border: 1px solid #e8ecea; border-radius: 8px; }
+.managerManualBlockers legend { padding: 0 4px; font-size: 11px; font-weight: 600; }
+.managerManualBlockers legend small { color: #97a09b; font-weight: 400; }
+.managerManualBlockers label { display: flex; align-items: center; gap: 7px; font-size: 11px; }
+.managerManualBlockers label small { color: #b91c1c; }
+.managerManualRiskRead { display: grid; gap: 6px; }
+.managerManualRiskReadLabel { color: #68726d; font-size: 11px; }

@@ -80,7 +80,7 @@ def load_queue(
             TicketAssignment.planned_finish_at,
             Ticket.id.label("ticket_id"),
             Ticket.created_at,
-            Ticket.score_total,
+            Ticket.risk_score,
             CategoryCatalog.code,
         )
         .join(Ticket, Ticket.id == TicketAssignment.ticket_id)
@@ -97,7 +97,7 @@ def load_queue(
             key=row.id,
             ticket_ids=(row.ticket_id,),
             duration=p80_for_code(row.code),
-            score=row.score_total or 0,
+            score=row.risk_score or 0,
             submitted_at=as_utc(row.created_at) or now,
             deadline=as_utc(row.planned_finish_at),
             assignment_id=row.id,
@@ -201,7 +201,7 @@ def reindex_technicians(
                 key=row.id,
                 ticket_ids=(row.ticket_id,),
                 duration=p80_for_code(codes.get(row.ticket_id)),
-                score=(row.ticket.score_total if row.ticket else None) or 0,
+                score=(row.ticket.risk_score if row.ticket else None) or 0,
                 submitted_at=(as_utc(row.ticket.created_at) if row.ticket else None) or now,
                 deadline=as_utc(row.planned_finish_at),
                 assignment_id=row.id,

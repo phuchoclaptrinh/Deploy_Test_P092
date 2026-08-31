@@ -14,7 +14,7 @@ import pytest
 
 from src.agents.nodes import RECENT_NO_NEW_INFO, RECENT_RECURRED, RECENT_UNSURE
 from src.agents.service import run_analysis
-from src.models.agent_schemas import AgentQuestionKind, P3ReviewStatus
+from src.models.agent_schemas import AgentQuestionKind, EmergencyReviewStatus
 from src.models.api.errors import DomainError
 from src.models.enums import ClassificationStatus, TicketStatus
 from src.services.agent_backend_service import AgentBackendService
@@ -72,7 +72,7 @@ def test_a_confirmed_duplicate_links_to_the_master_and_carries_no_priority(agent
     # A duplicate is not a second copy of the work: no priority, no score, no
     # deadline of its own, and it never joins the queue.
     assert ticket.priority is None
-    assert ticket.score_total is None
+    assert ticket.risk_score is None
     assert ticket.sla_due_at is None
     assert agent_world.latest_run(ticket_id).grouping_status == GROUPING_NOT_ELIGIBLE
 
@@ -292,5 +292,5 @@ def test_a_technical_failure_is_a_failed_run_with_a_code_not_an_uncertain_duplic
     # The distinction the whole design turns on: a broken model is not a
     # verdict about the ticket.
     assert run.exit_reason != "DUPLICATE_UNCERTAIN"
-    assert run.p3_review_status in {None, P3ReviewStatus.NOT_REQUIRED.value}
+    assert run.emergency_review_status in {None, EmergencyReviewStatus.NOT_REQUIRED.value}
     assert agent_world.ticket(ticket_id).classification_status is ClassificationStatus.MANUAL_REVIEW

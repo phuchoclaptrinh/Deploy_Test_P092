@@ -25,6 +25,16 @@ const actionLabels: Record<string, string> = {
   FINALIZE_AGENT_RESULT: "Hoàn tất phân loại",
   RESOLVE_MANUAL_REVIEW: "Xác nhận phân loại",
   REJECT_MANUAL_REVIEW: "Từ chối phân loại",
+  // Risk scoring v2. The events `docs/risk_scoring_v2.md` §9 requires a trail
+  // for -- each one a moment a priority moved without anybody re-scoring the
+  // ticket by hand, which is exactly when an auditor needs a sentence.
+  RESOLVE_EMERGENCY_REVIEW: "Duyệt mức khẩn cấp",
+  EMERGENCY_WARNING_RAISED: "Cảnh báo khẩn cấp",
+  MASTER_ESCALATED_BY_EMERGENCY_DUPLICATE: "Nâng phản ánh gốc theo bản trùng khẩn cấp",
+  TICKET_DETACHED_FROM_CASE: "Tách khỏi hồ sơ sự cố",
+  INCIDENT_CASE_CLOSED: "Đóng hồ sơ sự cố",
+  TICKET_GROUPED_INTO_CASE: "Gộp vào hồ sơ sự cố",
+  ASSIGNMENT_ENDED_BY_EMERGENCY_ESCALATION: "Thu hồi phân công do nâng lên P5",
 };
 const actorLabels: Record<string, string> = { COORDINATOR: "Điều phối viên", TECHNICIAN: "Kỹ thuật viên", RESIDENT: "Cư dân", SYSTEM: "Hệ thống" };
 const fieldLabels: Record<string, string> = {
@@ -32,15 +42,26 @@ const fieldLabels: Record<string, string> = {
   priority: "Mức ưu tiên",
   category_id: "Danh mục",
   classification_status: "Phân loại",
-  score_total: "Điểm",
+  risk_score: "Điểm rủi ro",
   technician_id: "Kỹ thuật viên",
   display_name: "Tên danh mục",
   code: "Mã danh mục",
-  base_score: "Điểm cơ sở",
-  priority_ceiling: "Mức ưu tiên tối đa",
   is_active: "Trạng thái sử dụng",
-  severity: "Mức độ nghiêm trọng",
-  red_flag_override: "Cảnh báo khẩn cấp",
+  // Risk scoring v2. `score_total`, `base_score`, `priority_ceiling` and
+  // `severity` are kept below because audit rows written before the cutover
+  // still carry them, and an entry rendering a raw column name is worse than a
+  // stale label.
+  score_total: "Điểm (thang cũ)",
+  base_score: "Điểm cơ sở (đã bỏ)",
+  priority_ceiling: "Mức ưu tiên tối đa (đã bỏ)",
+  severity: "Mức độ nghiêm trọng (đã bỏ)",
+  reason: "Lý do",
+  duplicate_ticket_id: "Phản ánh trùng",
+  case_id: "Hồ sơ sự cố",
+  density: "Số căn trong case",
+  escalated_to_emergency: "Nâng lên P5",
+  blocker_codes: "Sự kiện khẩn cấp",
+  technician_ids: "Kỹ thuật viên bị thu hồi",
 };
 const valueLabels: Record<string, string> = {
   NEW: "Mới",

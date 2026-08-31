@@ -24,7 +24,7 @@ it must exist, and it must not be the ticket itself) and then linked.
 
 Four things happen strictly outside the foreground round:
 
-* **The P3 gate** (`resolve_p3_review`). P3 is the five-minute-SLA priority, so
+* **The P3 gate** (`resolve_emergency_review`). P3 is the five-minute-SLA priority, so
   a P3 classification is never published automatically: the run stops before
   the duplicate stage and a coordinator either confirms the emergency or
   downgrades it.
@@ -42,6 +42,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
@@ -53,10 +54,12 @@ from src.database.models.ai_analysis import AIAnalysisRun
 from src.database.models.incident_case import IncidentCase
 from src.database.models.incident_case_member import IncidentCaseMember
 from src.database.models.location import Location
-from src.database.models.scoring_rule_version import ScoringRuleVersion
+from src.database.models.notification import Notification
 from src.database.models.ticket import Ticket
 from src.database.models.ticket_assignment import TicketAssignment
 from src.domain.assignment_transitions import ACTIVE_ASSIGNMENT_STATUSES
+from src.domain.grouping_guard import EMERGENCY_NOT_GROUPABLE_REASON, ticket_may_join_case
+from src.domain.risk_scoring import backend_scope_score
 from src.models.agent_schemas import (
     ANALYSIS_CONTRACT_VERSION,
     MAX_ASK_ROUNDS,
@@ -67,8 +70,8 @@ from src.models.agent_schemas import (
     AgentGroupingResult,
     AgentToolUsage,
     DuplicateVerdict,
-    P3Decision,
-    P3ReviewStatus,
+    EmergencyDecision,
+    EmergencyReviewStatus,
 )
 from src.models.api.errors import (
     ACTIVE_ASSIGNMENT_EXISTS,
@@ -82,14 +85,13 @@ from src.models.enums import (
     ClassificationStatus,
     InvalidReason,
     Priority,
-    SeveritySource,
+    RiskAssessmentSource,
     TicketStatus,
 )
 from src.services.agent_common import GROUPING_CODES, AgentServiceBase, reference_code
 from src.services.auto_approval import auto_approve_and_dispatch
-from src.services.coordinator_support import CoordinatorScoringSupport
-from src.services.p3_review_guard import p3_review_is_pending
-from src.services.scoring_service import ScoringService
+from src.services.emergency_review_guard import emergency_review_is_pending
+from src.services.risk_assessment_service import RiskAssessmentService, evidence_payload
 from src.services.ticket_service import TicketService
 
 logger = logging.getLogger(__name__)
@@ -110,11 +112,28 @@ TERMINAL_TICKET_STATUSES = {
 MAX_ANALYZED_AT_SKEW = timedelta(hours=1)
 
 #: A downgrade may only land below the emergency priority.
-DOWNGRADE_PRIORITIES = {Priority.P1, Priority.P2}
+#: Every band below the emergency one. Downgrading to P5 is not a
+#: downgrade; confirming is the action for that.
+DOWNGRADE_PRIORITIES = {Priority.P1, Priority.P2, Priority.P3, Priority.P4}
 
 MAX_DUPLICATE_CHAIN_DEPTH = 10
 GROUPING_LOOKBACK_DAYS = 3
 MAX_CASE_MEMBERS = 5
+
+
+@dataclass(frozen=True)
+class GroupingPersistResult:
+    """What one grouping write actually changed.
+
+    `primary` is the case holding the ticket that triggered the grouping -- the
+    one the analysis run and the audit entry name. `cases` is every case whose
+    membership changed, which is more than one exactly when the write spilled
+    past `MAX_CASE_MEMBERS`. Both are needed: the run payload wants one case,
+    and re-scoring wants all of them.
+    """
+
+    primary: IncidentCase
+    cases: list[IncidentCase]
 
 #: `ai_analysis_runs.grouping_status`. A ticket that never became eligible is
 #: not the same thing as one where grouping ran and found nothing, and neither
@@ -130,7 +149,7 @@ GROUPING_WAITING_DUPLICATE_DECISION = "WAITING_DUPLICATE_DECISION"
 #: Grouping is blocked because the emergency gate is still open. Distinct from
 #: WAITING_DUPLICATE_DECISION on purpose: they are different gates, held by
 #: different people, and a ticket is never in both.
-GROUPING_WAITING_P3_REVIEW = "WAITING_P3_MANAGEMENT_REVIEW"
+GROUPING_WAITING_EMERGENCY_REVIEW = "WAITING_EMERGENCY_MANAGEMENT_REVIEW"
 GROUPING_NOT_ELIGIBLE = "NOT_ELIGIBLE"
 GROUPING_NO_MATCH = "NO_MATCH"
 GROUPING_GROUPED = "GROUPED"
@@ -163,8 +182,7 @@ class AgentResultService(AgentServiceBase):
             run = self._new_run(ticket, session, result)
 
             handler = {
-                AgentExitReason.RED_FLAG: self._apply_red_flag,
-                AgentExitReason.P3_REVIEW_REQUIRED: self._apply_p3_review_required,
+                AgentExitReason.EMERGENCY_REVIEW_REQUIRED: self._apply_emergency_review_required,
                 AgentExitReason.DUPLICATE_EXISTING: self._apply_duplicate_existing,
                 AgentExitReason.DUPLICATE_UNCERTAIN: self._apply_duplicate_uncertain,
                 AgentExitReason.LIMIT_REACHED: self._apply_manual_review,
@@ -362,10 +380,6 @@ class AgentResultService(AgentServiceBase):
             text_category_id=result.text_category_id,
             image_category_id=result.image_category_id,
             ai_reason=result.ai_reason,
-            red_flag=result.red_flag,
-            red_flag_text=result.red_flag,
-            severity=result.severity,
-            severity_source=self._severity_source(result),
             status=AnalysisRunStatus.SUCCEEDED,
             completed_at=datetime.now(UTC),
             contract_version=ANALYSIS_CONTRACT_VERSION,
@@ -382,7 +396,7 @@ class AgentResultService(AgentServiceBase):
             # picked up by the background stage.
             grouping_status=GROUPING_NOT_ELIGIBLE,
             # Overwritten by the two handlers that open the gate.
-            p3_review_status=P3ReviewStatus.NOT_REQUIRED.value,
+            emergency_review_status=EmergencyReviewStatus.NOT_REQUIRED,
             # Backend-owned canonical usage, never the Agent-declared numbers.
             tool_usage=self._backend_tool_usage(session).model_dump(),
             category_catalog_version=session.category_catalog_version,
@@ -390,70 +404,60 @@ class AgentResultService(AgentServiceBase):
             analyzed_at=result.analyzed_at,
         )
 
-    @staticmethod
-    def _severity_source(result: AgentAnalysisResult) -> SeveritySource | None:
-        """Map the contract's IMAGE/TEXT onto the stored VISION/TEXT_FALLBACK."""
-        if result.severity_source is None:
-            return None
-        return SeveritySource.VISION if result.severity_source.value == "IMAGE" else SeveritySource.TEXT_FALLBACK
+    def _record_assessment(
+        self,
+        ticket: Ticket,
+        result: AgentAnalysisResult,
+        run: AIAnalysisRun,
+        *,
+        backend_scope_score: int | None = None,
+        confirmed_affected_unit_count: int | None = None,
+    ):
+        """Turn the Agent's five numbers into a priority, once, in one place.
+
+        Every exit that establishes a classification goes through here, so
+        there is exactly one path from "the model said 3" to "the ticket is a
+        P4", and `ticket.priority` is never assigned anywhere else.
+        """
+        if result.criteria is None:
+            raise DomainError(CATEGORY_REQUIRED, "Agent did not provide the five risk criteria.", 409)
+        assessment = RiskAssessmentService(self.db).record(
+            ticket,
+            criteria=result.criteria.to_domain(),
+            source=RiskAssessmentSource.AI_ANALYSIS,
+            blocker_codes=result.blockers,
+            evidence=evidence_payload(result.evidence),
+            unknown_facts=list(result.unknown_facts),
+            backend_scope_score=backend_scope_score,
+            confirmed_affected_unit_count=confirmed_affected_unit_count,
+            ai_analysis_run_id=run.id,
+        )
+        run.risk_assessment_id = assessment.id
+        return assessment
 
     # ------------------------------------------------------------------
     # Exit handlers.
     # ------------------------------------------------------------------
 
-    def _apply_red_flag(
+    def _apply_emergency_review_required(
         self,
         session: AIAnalysisSession,
         ticket: Ticket,
         result: AgentAnalysisResult,
         run: AIAnalysisRun,
     ) -> None:
-        """Danger answered by speed, not by a score -- and then by a human.
+        """The classification scored P5, whether by score or by blocker.
 
-        A red flag is a P3 by definition, so it goes through the same gate as
-        any other P3. The ticket keeps its P3 priority and its five-minute SLA
-        immediately; what waits is publication, duplicate work and grouping.
-        """
-        ticket.red_flag_detected = True
-        ticket.severity = result.severity
-        if result.category_id is not None:
-            ticket.category_id = result.category_id
-        ticket.priority = Priority.P3
-        ticket.score_total = None
-        # No rule version is pinned: there is no scoring decision to reproduce.
-        CoordinatorScoringSupport(self.db, ScoringService()).recalculate_sla(ticket)
-        self._open_p3_gate(ticket, run, Priority.P3)
-        self._notify_unit(
-            ticket,
-            "TICKET_RED_FLAG",
-            "Phản ánh được xử lý khẩn cấp",
-            "Ban quản lý đã ghi nhận dấu hiệu nguy hiểm và đang xem xét ngay.",
-        )
-
-    def _apply_p3_review_required(
-        self,
-        session: AIAnalysisSession,
-        ticket: Ticket,
-        result: AgentAnalysisResult,
-        run: AIAnalysisRun,
-    ) -> None:
-        """The classification scored P3 without a danger signal.
-
-        Same gate, different reason. The score is written so a coordinator can
-        see how the ticket got there, but the ticket is not published and no
-        duplicate lookup ever ran -- the contract rejects a P3 payload that
-        carries one.
+        The assessment is written so a coordinator can see exactly how the
+        ticket got there -- which criterion carried it, or which blocker floored
+        it -- and then the ticket stops for a human. It is not published and no
+        assignment path will touch it.
         """
         category_id = result.category_id
-        assert category_id is not None  # guaranteed by the payload validator
-        snapshot = self._snapshot_by_id(session).get(str(category_id))
-        if snapshot is None:
-            raise DomainError(CATEGORY_REQUIRED, "Category not found in session snapshot.", 400)
-
-        ticket.category_id = category_id
-        ticket.severity = result.severity
-        self._apply_scoring(ticket, snapshot, 1, run)
-        self._open_p3_gate(ticket, run, ticket.priority or Priority.P3)
+        if category_id is not None:
+            ticket.category_id = category_id
+        self._record_assessment(ticket, result, run)
+        self._open_emergency_gate(ticket, run, ticket.priority or Priority.P5)
         # Every other exit tells the resident something. This one would
         # otherwise leave them watching a report that has visibly stopped.
         self._notify_unit(
@@ -463,7 +467,7 @@ class AgentResultService(AgentServiceBase):
             "Phản ánh của bạn được đánh giá ở mức ưu tiên cao và đang chờ Ban quản lý duyệt ngay.",
         )
 
-    def _open_p3_gate(self, ticket: Ticket, run: AIAnalysisRun, priority: Priority) -> None:
+    def _open_emergency_gate(self, ticket: Ticket, run: AIAnalysisRun, priority: Priority) -> None:
         """Park the ticket in front of a coordinator and stop the automation.
 
         Manual review rather than resolved: `RESOLVED` is what publishes a
@@ -474,18 +478,18 @@ class AgentResultService(AgentServiceBase):
         """
         ticket.classification_status = ClassificationStatus.MANUAL_REVIEW
         ticket.version += 1
-        run.p3_review_status = P3ReviewStatus.PENDING.value
+        run.emergency_review_status = EmergencyReviewStatus.PENDING
         run.ai_priority_before_review = priority
         run.effective_priority = priority
-        run.grouping_status = GROUPING_WAITING_P3_REVIEW
+        run.grouping_status = GROUPING_WAITING_EMERGENCY_REVIEW
         self._notify_coordinators(
             ticket,
-            "TICKET_P3_REVIEW_REQUIRED",
+            "TICKET_EMERGENCY_REVIEW_REQUIRED",
             "Cần duyệt phản ánh mức khẩn cấp",
-            "AI xếp phản ánh này ở mức khẩn cấp P3. Vui lòng xác nhận hoặc hạ mức trước khi xử lý tiếp.",
+            "AI xếp phản ánh này ở mức khẩn cấp P5. Vui lòng xác nhận hoặc hạ mức trước khi xử lý tiếp.",
             {
                 "ai_priority": priority.value,
-                "red_flag": bool(ticket.red_flag_detected),
+                "risk_score": float(ticket.risk_score) if ticket.risk_score is not None else None,
                 "ai_reason": run.ai_reason,
             },
         )
@@ -510,7 +514,18 @@ class AgentResultService(AgentServiceBase):
             )
 
         run.grouping_status = GROUPING_NOT_ELIGIBLE
+        # Score the incoming ticket before it is linked. A duplicate carries no
+        # priority of its own, but the assessment is what says *why* the master
+        # is about to be escalated, and it has to be on record for that.
+        emergency = False
+        if result.criteria is not None:
+            assessment = self._record_assessment(ticket, result, run)
+            emergency = assessment.final_priority is Priority.P5
+
         self._link_duplicate(ticket, master, result.duplicate.reason, run, session_id=session.id)
+
+        if emergency:
+            self._escalate_master_to_emergency(master, ticket)
 
     def _apply_duplicate_uncertain(
         self,
@@ -521,8 +536,8 @@ class AgentResultService(AgentServiceBase):
     ) -> None:
         """Everything the Agent established is kept; the link is not made.
 
-        The category, severity, both reasons, the candidate snapshot and the
-        whole question/answer history stay on the run and the session, because
+        The category, the risk assessment, both reasons, the candidate snapshot
+        and the whole question/answer history stay on record, because
         that is exactly the evidence management opens the ticket to read before
         deciding. Grouping waits for that decision.
 
@@ -531,9 +546,10 @@ class AgentResultService(AgentServiceBase):
         it into an incident case; grouping becomes pending only once
         `resolve_duplicate_uncertain` publishes it as an independent ticket.
         """
-        ticket.severity = result.severity
         if result.category_id is not None:
             ticket.category_id = result.category_id
+        if result.criteria is not None:
+            self._record_assessment(ticket, result, run)
         ticket.classification_status = ClassificationStatus.MANUAL_REVIEW
         ticket.version += 1
         run.grouping_status = GROUPING_WAITING_DUPLICATE_DECISION
@@ -564,11 +580,11 @@ class AgentResultService(AgentServiceBase):
         """LIMIT_REACHED: the conversation ran out of budget before a decision.
 
         Whatever the round did establish is kept, and nothing it did not is
-        overwritten -- a null severity here means "never established", not
-        "reset the one the ticket already had".
+        overwritten -- absent criteria here mean "never established", not
+        "reset the assessment the ticket already had".
         """
-        if result.severity is not None:
-            ticket.severity = result.severity
+        if result.criteria is not None:
+            self._record_assessment(ticket, result, run)
         if result.category_id is not None:
             ticket.category_id = result.category_id
         ticket.classification_status = ClassificationStatus.MANUAL_REVIEW
@@ -588,7 +604,7 @@ class AgentResultService(AgentServiceBase):
         result: AgentAnalysisResult,
         run: AIAnalysisRun,
     ) -> None:
-        """The normal outcome: one Category, one severity, scored and published.
+        """The normal outcome: one Category, five criteria, scored and published.
 
         Grouping is not attempted here. The resident gets their answer now, and
         the background stage looks for a spreading case afterwards.
@@ -600,11 +616,10 @@ class AgentResultService(AgentServiceBase):
             raise DomainError(CATEGORY_REQUIRED, "Category not found in session snapshot.", 400)
 
         ticket.category_id = category_id
-        ticket.severity = result.severity
-        # Density starts at one apartment. The background grouping stage
-        # rescores nothing: it records the case, and Density is a property of
-        # the case rather than a retroactive edit to this ticket's score.
-        self._apply_scoring(ticket, snapshot, 1, run)
+        # No confirmed scope yet: this ticket stands alone until the background
+        # grouping stage finds a case, and only then does the backend have a
+        # count that can overrule the Agent's estimate.
+        self._record_assessment(ticket, result, run)
         self._apply_priority_override(ticket, run)
         ticket.classification_status = ClassificationStatus.RESOLVED
         ticket.version += 1
@@ -691,9 +706,11 @@ class AgentResultService(AgentServiceBase):
         ticket.status = TicketStatus.LINKED_DUPLICATE
         ticket.classification_status = ClassificationStatus.RESOLVED
         # A duplicate carries no Priority, score or SLA of its own and never
-        # joins the active queue.
+        # joins the active queue. The assessment revisions stay: they are the
+        # record of what was concluded before the link, and a coordinator who
+        # later splits the ticket needs them.
         ticket.priority = None
-        ticket.score_total = None
+        ticket.risk_score = None
         ticket.sla_due_at = None
         ticket.auto_assignment_paused = True
         ticket.auto_assignment_pause_reason = "Linked duplicate"
@@ -756,22 +773,22 @@ class AgentResultService(AgentServiceBase):
     # Management decision at the P3 gate.
     # ------------------------------------------------------------------
 
-    def p3_review_is_pending(self, ticket_id: UUID) -> bool:
+    def emergency_review_is_pending(self, ticket_id: UUID) -> bool:
         """Whether this ticket is currently held at the emergency gate.
 
         Read by every automatic step that must not run behind it, so a client
         calling an endpoint directly hits the same rule the pipeline does.
-        One implementation, in `p3_review_guard`, shared with the coordinator
+        One implementation, in `emergency_review_guard`, shared with the coordinator
         services that ask the same question.
         """
-        return p3_review_is_pending(self.db, ticket_id)
+        return emergency_review_is_pending(self.db, ticket_id)
 
-    def resolve_p3_review(
+    def resolve_emergency_review(
         self,
         actor_user_id: UUID,
         ticket_id: UUID,
         *,
-        decision: P3Decision,
+        decision: EmergencyDecision,
         priority: Priority | None = None,
         reason: str = "",
     ) -> Ticket:
@@ -787,7 +804,7 @@ class AgentResultService(AgentServiceBase):
         try:
             ticket = self._locked_ticket(ticket_id)
             run = self._latest_successful_run(ticket_id)
-            if run is None or run.p3_review_status != P3ReviewStatus.PENDING.value:
+            if run is None or run.emergency_review_status != EmergencyReviewStatus.PENDING:
                 raise DomainError(
                     INVALID_STATUS_TRANSITION,
                     "Phản ánh này không đang chờ duyệt mức khẩn cấp.",
@@ -797,8 +814,8 @@ class AgentResultService(AgentServiceBase):
             now = datetime.now(UTC)
             note = reason.strip()
 
-            if decision is P3Decision.CONFIRM_P3:
-                self._confirm_p3(ticket, run)
+            if decision is EmergencyDecision.CONFIRM_P5:
+                self._confirm_emergency(ticket, run)
             else:
                 if not note:
                     raise DomainError(
@@ -809,19 +826,19 @@ class AgentResultService(AgentServiceBase):
                 if priority not in DOWNGRADE_PRIORITIES:
                     raise DomainError(
                         CONTRACT_VALIDATION_ERROR,
-                        "Chỉ được hạ xuống P1 hoặc P2.",
+                        "Chỉ được hạ xuống P1, P2, P3 hoặc P4.",
                         400,
                     )
-                self._downgrade_from_p3(ticket, run, priority)
+                self._downgrade_from_emergency_review(ticket, run, priority, note, actor_user_id)
 
-            run.p3_reviewed_by = actor_user_id
-            run.p3_reviewed_at = now
-            run.p3_decision = decision.value
-            run.p3_decision_reason = note or None
+            run.emergency_reviewed_by = actor_user_id
+            run.emergency_reviewed_at = now
+            run.emergency_decision = decision.value
+            run.emergency_decision_reason = note or None
 
             self._audit(
                 actor_user_id,
-                "RESOLVE_P3_REVIEW",
+                "RESOLVE_EMERGENCY_REVIEW",
                 ticket.id,
                 {
                     "decision": decision.value,
@@ -829,7 +846,7 @@ class AgentResultService(AgentServiceBase):
                     "effective_priority": run.effective_priority.value if run.effective_priority else None,
                     "reason": note or None,
                     "analysis_run_id": str(run.id),
-                    "p3_review_status": run.p3_review_status,
+                    "emergency_review_status": run.emergency_review_status,
                     "grouping_status": run.grouping_status,
                 },
             )
@@ -840,55 +857,63 @@ class AgentResultService(AgentServiceBase):
             self.db.rollback()
             raise
 
-    def _confirm_p3(self, ticket: Ticket, run: AIAnalysisRun) -> None:
-        """Publish the emergency and leave the automation switched off."""
-        ticket.priority = Priority.P3
+    def _confirm_emergency(self, ticket: Ticket, run: AIAnalysisRun) -> None:
+        """Publish the emergency and leave the automation switched off.
+
+        The priority is not rewritten: it is already P5, and confirming is an
+        agreement with the assessment rather than a new one. Confirming also
+        does not unlock assignment -- a confirmed emergency is handled by hand,
+        outside the dispatch queue.
+        """
         ticket.classification_status = ClassificationStatus.RESOLVED
         ticket.version += 1
-        CoordinatorScoringSupport(self.db, ScoringService()).recalculate_sla(ticket)
-        run.p3_review_status = P3ReviewStatus.CONFIRMED.value
-        run.effective_priority = Priority.P3
-        run.priority_final = Priority.P3
-        # Deliberate, not an oversight: a confirmed emergency is never grouped
-        # and its duplicates are never chased.
+        RiskAssessmentService(self.db).recalculate_sla(ticket)
+        run.emergency_review_status = EmergencyReviewStatus.CONFIRMED
+        run.effective_priority = Priority.P5
+        # Deliberate, not an oversight: a confirmed emergency is never grouped.
         run.grouping_status = GROUPING_NOT_ELIGIBLE
         self._notify_unit(
             ticket,
-            "TICKET_RED_FLAG" if ticket.red_flag_detected else "TICKET_CLASSIFIED",
+            "TICKET_CLASSIFIED",
             "Phản ánh được xử lý khẩn cấp",
             "Ban quản lý đã xác nhận mức khẩn cấp và đang xử lý ngay.",
         )
 
-    def _downgrade_from_p3(self, ticket: Ticket, run: AIAnalysisRun, priority: Priority) -> None:
+    def _downgrade_from_emergency_review(
+        self, ticket: Ticket, run: AIAnalysisRun, priority: Priority, reason: str, reviewed_by: UUID | None = None
+    ) -> None:
         """Lower the priority and let the pipeline continue.
 
         The ticket is deliberately *not* published here. It goes back to the
-        duplicate stage first, exactly where a non-P3 ticket would have been,
-        and whatever that concludes is what publishes it.
+        duplicate stage first, exactly where a non-emergency ticket would have
+        been, and whatever that concludes is what publishes it.
+
+        The new band is written as an override revision rather than straight
+        onto the ticket, so the criteria that produced P5 survive next to the
+        human decision that overruled them.
         """
-        ticket.priority = priority
-        ticket.red_flag_detected = False
+        RiskAssessmentService(self.db).record_priority_override(
+            ticket, priority=priority, reason=reason, reviewed_by=reviewed_by
+        )
         ticket.version += 1
-        CoordinatorScoringSupport(self.db, ScoringService()).recalculate_sla(ticket)
-        run.p3_review_status = P3ReviewStatus.DOWNGRADED.value
+        run.emergency_review_status = EmergencyReviewStatus.DOWNGRADED
         run.effective_priority = priority
-        run.priority_final = priority
         # Still not PENDING: grouping waits for the duplicate stage that is
         # about to run, and that stage sets it if the ticket stays independent.
         run.grouping_status = GROUPING_NOT_ELIGIBLE
 
     def management_priority_override(self, ticket_id: UUID) -> Priority | None:
-        """The priority a coordinator set at the P3 gate, if they set one.
+        """The priority a coordinator set at the emergency gate, if they set one.
 
-        Read by the runs that come after a downgrade: the severity has not
-        changed, so re-scoring the ticket would land on P3 again and undo the
+        Read by the runs that come after a downgrade: the criteria have not
+        changed, so re-scoring the ticket would land on P5 again and undo the
         decision.
         """
         run = self.db.scalar(
             select(AIAnalysisRun)
             .where(
                 AIAnalysisRun.ticket_id == ticket_id,
-                AIAnalysisRun.p3_review_status == P3ReviewStatus.DOWNGRADED.value,
+                AIAnalysisRun.emergency_review_status == EmergencyReviewStatus.DOWNGRADED,
             )
             .order_by(AIAnalysisRun.run_number.desc())
             .limit(1)
@@ -896,16 +921,37 @@ class AgentResultService(AgentServiceBase):
         return run.effective_priority if run is not None else None
 
     def _apply_priority_override(self, ticket: Ticket, run: AIAnalysisRun) -> None:
-        """Re-apply a coordinator's downgrade over a fresh score."""
+        """Re-apply a coordinator's downgrade over a fresh score.
+
+        Written as its own revision rather than straight onto the ticket. The
+        run that just finished produced a fresh assessment that scores the
+        emergency band again -- the criteria have not changed -- so leaving that
+        as the current revision while the ticket showed P2 would put the cache
+        and the record in disagreement, and the next re-score would read the
+        record and quietly undo the coordinator.
+        """
         override = self.management_priority_override(ticket.id)
         if override is None:
             run.effective_priority = ticket.priority
             return
-        ticket.priority = override
-        run.priority_final = override
+        RiskAssessmentService(self.db).record_priority_override(
+            ticket,
+            priority=override,
+            reason=self._downgrade_reason(ticket.id) or "Ban quản lý đã hạ mức tại cửa duyệt khẩn cấp.",
+        )
         run.effective_priority = override
-        run.ceiling_applied = True
-        CoordinatorScoringSupport(self.db, ScoringService()).recalculate_sla(ticket)
+
+    def _downgrade_reason(self, ticket_id: UUID) -> str | None:
+        """The reason the coordinator gave, carried onto every later revision."""
+        return self.db.scalar(
+            select(AIAnalysisRun.emergency_decision_reason)
+            .where(
+                AIAnalysisRun.ticket_id == ticket_id,
+                AIAnalysisRun.emergency_review_status == EmergencyReviewStatus.DOWNGRADED,
+            )
+            .order_by(AIAnalysisRun.run_number.desc())
+            .limit(1)
+        )
 
     # ------------------------------------------------------------------
     # Management decision on an uncertain duplicate.
@@ -1027,15 +1073,148 @@ class AgentResultService(AgentServiceBase):
             raise DomainError(CONTRACT_VALIDATION_ERROR, "Linking would create a duplicate cycle.", 400)
         return master
 
+    def _escalate_master_to_emergency(self, master: Ticket, duplicate: Ticket) -> None:
+        """A confident duplicate of an emergency pulls its master up with it.
+
+        The master is the ticket somebody will actually work. If a second
+        resident reports the same incident and *that* report reads as an
+        emergency, the incident is an emergency -- the master having been filed
+        first does not make it less urgent.
+
+        Two consequences, in this order:
+
+        1. A `DUPLICATE_ESCALATION` revision raises the master to P5. It is an
+           override rather than a re-score: the master's own criteria have not
+           changed, and rewriting them to justify P5 would forge evidence.
+        2. The master leaves any case it is in. P5 is manual-only, and a case
+           holding a P5 member would offer it on the board.
+        """
+        if master.priority is Priority.P5:
+            return
+        RiskAssessmentService(self.db).record_priority_override(
+            master,
+            priority=Priority.P5,
+            reason=(
+                f"Phản ánh trùng {reference_code(duplicate.id)} được đánh giá ở mức khẩn cấp P5, "
+                "nên phản ánh gốc được nâng lên cùng mức."
+            ),
+            source=RiskAssessmentSource.DUPLICATE_ESCALATION,
+        )
+        master.version += 1
+        self._audit(
+            None,
+            "MASTER_ESCALATED_BY_EMERGENCY_DUPLICATE",
+            master.id,
+            {"duplicate_ticket_id": str(duplicate.id), "priority": Priority.P5.value},
+        )
+        self._detach_from_case(master, reason="Nâng lên P5 do phản ánh trùng khẩn cấp")
+
+    def _detach_from_case(self, ticket: Ticket, *, reason: str) -> None:
+        """Remove one ticket from its case. See `_detach_members`."""
+        self._detach_members([ticket], reason=reason)
+
+    def _detach_members(self, tickets: list[Ticket], *, reason: str) -> None:
+        """Remove tickets from their case, leaving the case working.
+
+        **All of them come out before anything is re-scored**, and that ordering
+        is the whole method. Detaching one at a time re-scores the survivors
+        after each removal, so when two members escalate together the first
+        detach drops the confirmed count and pushes the second back to P4 -- and
+        it is then detached anyway, on a decision that has just been erased.
+        A P5 that has been recorded is an event that happened, not a function of
+        the membership the ticket currently has.
+
+        Only these tickets' memberships are deleted. The other members keep
+        their own tickets, their own assignments and their own place on the
+        board: one member becoming an emergency is not a reason to stop work on
+        the rest of the incident.
+
+        The survivors are re-scored once at the end, because the confirmed
+        apartment count dropped. That pass can only lower priorities -- scope
+        never rises when members leave -- so it cannot cascade.
+        """
+        cases: dict[UUID, IncidentCase] = {}
+        for ticket in tickets:
+            membership = self.db.scalar(
+                select(IncidentCaseMember).where(IncidentCaseMember.ticket_id == ticket.id)
+            )
+            if membership is None:
+                continue
+            case = self.db.get(IncidentCase, membership.case_id)
+            self.db.delete(membership)
+            self._audit(
+                None,
+                "TICKET_DETACHED_FROM_CASE",
+                ticket.id,
+                {"case_id": str(membership.case_id), "reason": reason},
+            )
+            if case is not None:
+                cases[case.id] = case
+        self.db.flush()
+
+        for case in cases.values():
+            self._recompute_density(case)
+            remaining = self._case_member_tickets(case)
+            if not remaining:
+                case.status = "CLOSED"
+                case.closed_at = datetime.now(UTC)
+                case.closed_reason = reason
+                self.db.flush()
+                self._audit(None, "INCIDENT_CASE_CLOSED", case.id, {"reason": reason})
+                continue
+            self._rescore_case_members(case, remaining)
+
+    def _case_member_tickets(self, case: IncidentCase) -> list[Ticket]:
+        return list(
+            self.db.scalars(
+                select(Ticket)
+                .join(IncidentCaseMember, IncidentCaseMember.ticket_id == Ticket.id)
+                .where(IncidentCaseMember.case_id == case.id)
+                .with_for_update(of=Ticket)
+            )
+        )
+
+    def _rescore_case_members(self, case: IncidentCase, members: list[Ticket]) -> list[Ticket]:
+        """Re-run the formula over every member with the case's confirmed count.
+
+        The Agent is not called again. Its four other judgements about each
+        ticket are still the best evidence there is, and only the scope moved --
+        re-asking a model the same question is how two members of one flood end
+        up with different human-safety scores.
+
+        Returns the members that came out of it at P5, which the caller detaches.
+        """
+        risk = RiskAssessmentService(self.db)
+        scope = backend_scope_score(case.density_value)
+        escalated: list[Ticket] = []
+        for member in members:
+            assessment = risk.rescore(
+                member,
+                source=RiskAssessmentSource.GROUPING_RESCORE,
+                backend_scope_score=scope,
+                confirmed_affected_unit_count=case.density_value,
+                case_id_snapshot=case.id,
+                case_density_snapshot=case.density_value,
+            )
+            if assessment is None:
+                # Never assessed, so there are no criteria to re-score. Left
+                # alone rather than given invented ones.
+                continue
+            if assessment.final_priority is Priority.P5:
+                escalated.append(member)
+        self.db.flush()
+        return escalated
+
     def _publish_after_not_duplicate(self, ticket: Ticket, run: AIAnalysisRun, note: str) -> None:
         """Score and publish a ticket management ruled independent."""
         category_id = run.final_category_id or ticket.category_id
-        if category_id is None or ticket.severity is None:
-            # Nothing to score from. It stays in manual review and a
-            # coordinator sets the Category through the normal override.
+        assessment = RiskAssessmentService(self.db).current(ticket)
+        if category_id is None or assessment is None:
+            # Nothing to publish from. It stays in manual review and a
+            # coordinator sets the Category and scores it by hand.
             raise DomainError(
                 CATEGORY_REQUIRED,
-                "Phản ánh chưa có phân loại và mức độ để chấm điểm.",
+                "Phản ánh chưa có phân loại và điểm rủi ro để công bố.",
                 409,
             )
         session = self.db.get(AIAnalysisSession, run.analysis_session_id) if run.analysis_session_id else None
@@ -1044,7 +1223,9 @@ class AgentResultService(AgentServiceBase):
             raise DomainError(CATEGORY_REQUIRED, "Category not found in session snapshot.", 400)
 
         ticket.category_id = category_id
-        self._apply_scoring(ticket, snapshot, 1, run)
+        # Nothing is re-scored: the assessment that was written when the Agent
+        # finished is still the one that applies. Management ruled on whether
+        # the ticket is a duplicate, which is not a fact the rubric weighs.
         self._apply_priority_override(ticket, run)
         ticket.classification_status = ClassificationStatus.RESOLVED
         ticket.version += 1
@@ -1080,6 +1261,62 @@ class AgentResultService(AgentServiceBase):
         """
         run = self._latest_successful_run(ticket_id)
         return run is not None and run.grouping_status == GROUPING_PENDING
+
+    def raise_emergency_warning(self, ticket_id: UUID, *, priority: Priority, ai_reason: str | None = None) -> bool:
+        """Tell Building Management there is an emergency, before anything else.
+
+        Fired from the graph the moment a classification scores P5, not at
+        persistence time. Duplicate retrieval takes a database round trip and a
+        model call; making somebody wait for that before being told there is
+        smoke in the lobby buys nothing.
+
+        This is *not* the review item. The review item is written by
+        `_open_emergency_gate` at finalize, and a confident duplicate never gets
+        one -- but it still gets this. `docs/risk_scoring_v2.md` §7.1.
+
+        Returns False when the warning was already raised for this ticket, so a
+        reclassification after a resident answer does not send it twice.
+        """
+        try:
+            ticket = self._locked_ticket(ticket_id)
+            already = self.db.scalar(
+                select(Notification.id).where(
+                    Notification.ticket_id == ticket_id,
+                    Notification.notification_type == "TICKET_EMERGENCY_WARNING",
+                )
+            )
+            if already is not None:
+                return False
+            self._notify_coordinators(
+                ticket,
+                "TICKET_EMERGENCY_WARNING",
+                "Cảnh báo sự cố khẩn cấp",
+                "AI vừa ghi nhận một phản ánh ở mức khẩn cấp P5. Vui lòng xử lý ngay.",
+                {"ai_priority": priority.value, "ai_reason": ai_reason},
+            )
+            self._audit(
+                None,
+                "EMERGENCY_WARNING_RAISED",
+                ticket.id,
+                {"priority": priority.value, "ai_reason": ai_reason},
+            )
+            self.db.commit()
+            return True
+        except Exception:
+            self.db.rollback()
+            raise
+
+    def duplicate_report_count(self, ticket_id: UUID) -> int:
+        """How many reports have been folded into this one.
+
+        Derived rather than stored. A counter column would be a second answer to
+        a question the duplicate links already answer, and the two would
+        eventually disagree -- a coordinator splitting a link would have to
+        remember to decrement it.
+        """
+        return int(
+            self.db.scalar(select(func.count(Ticket.id)).where(Ticket.duplicate_of_ticket_id == ticket_id)) or 0
+        )
 
     def record_grouping_outcome(self, ticket_id: UUID, status: str) -> None:
         """Close the grouping stage without a case (nothing matched, or blocked)."""
@@ -1142,7 +1379,25 @@ class AgentResultService(AgentServiceBase):
                 self.db.commit()
                 return None
 
-            case = self._persist_incident_grouping(ticket, category_id, members)
+            persisted = self._persist_incident_grouping(ticket, category_id, members)
+            case = persisted.primary
+            # Every member's confirmed scope just changed, so every member is
+            # re-scored -- not only the ticket that triggered the grouping. A
+            # case of four apartments where only the newest member knows it is a
+            # case of four apartments would be three wrong priorities.
+            #
+            # Every case, not only this ticket's: a write that spilled into a
+            # successor changed the density of the case it spilled out of too.
+            escalated: list[Ticket] = []
+            for entry in persisted.cases:
+                escalated.extend(self._rescore_case_members(entry, self._case_member_tickets(entry)))
+            if escalated:
+                # The escalating revisions were written *before* this detach by
+                # `_rescore_case_members`, with the case id and density on them.
+                # After the detach there is no case left to ask. All of them come
+                # out in one call, for the reason `_detach_members` documents.
+                self._detach_members(escalated, reason="Rescore sau gộp cụm đưa phản ánh lên P5")
+            self.db.flush()
             run.grouping = {
                 "grouped": True,
                 "related_ticket_ids": sorted(str(item.id) for item in members),
@@ -1150,6 +1405,9 @@ class AgentResultService(AgentServiceBase):
                 "reason": proposal.reason,
                 "density": case.density_value,
                 "case_id": str(case.id),
+                # Present whenever the write spilled past five members. Without
+                # it the payload describes one case and the database holds two.
+                "case_densities": {str(entry.id): entry.density_value for entry in persisted.cases},
             }
             run.grouping_status = GROUPING_GROUPED
             self._audit(
@@ -1160,7 +1418,9 @@ class AgentResultService(AgentServiceBase):
                     "case_id": str(case.id),
                     "category_id": str(category_id),
                     "density": case.density_value,
+                    "case_densities": {str(entry.id): entry.density_value for entry in persisted.cases},
                     "member_ticket_ids": sorted(str(item.id) for item in members),
+                    "escalated_to_emergency": sorted(str(item.id) for item in escalated),
                 },
             )
             self.db.commit()
@@ -1207,7 +1467,17 @@ class AgentResultService(AgentServiceBase):
         ]
 
     def _can_join_case(self, ticket: Ticket) -> bool:
+        """The last gate before a membership row exists.
+
+        Priority is checked here and not only at the search, because this runs
+        in a background transaction that starts after the resident has already
+        been answered. Between the two, a duplicate report can escalate this
+        ticket's master to P5, and `_escalate_master_to_emergency` detaches it
+        from whatever case it was in -- only for this write to put it back.
+        """
         if ticket.status in TERMINAL_TICKET_STATUSES:
+            return False
+        if not ticket_may_join_case(ticket):
             return False
         return not any(
             assignment.is_active and assignment.status in ACTIVE_ASSIGNMENT_STATUSES
@@ -1219,17 +1489,30 @@ class AgentResultService(AgentServiceBase):
         ticket: Ticket,
         category_id: UUID,
         members: list[Ticket],
-    ) -> IncidentCase:
+    ) -> GroupingPersistResult:
         """At most five members per case; overflow opens the next case in the
         same series.
 
         The series row is locked before counting, so two tickets finalizing at
         once cannot both see four members and both commit a fifth and a sixth.
+
+        **Every case the write touched comes back, not only the last one.**
+        Six apartments produce two cases -- five and one -- and the second is
+        the one the loop is holding when it ends. Recomputing density for that
+        one alone left the first at the `density_value=1` it was created with,
+        so five tickets that between them confirm five apartments each scored
+        their scope as though the apartment were alone. The caller re-scores all
+        of them, which it can only do if it is told all of the cases.
         """
         if ticket.location is None:
             raise DomainError(INVALID_STATUS_TRANSITION, "Grouping requires a valid ticket location.", 409)
+        # The triggering ticket does not pass through `_live_grouping_members`,
+        # so it is the one member whose priority nothing else has re-checked.
+        if not ticket_may_join_case(ticket):
+            raise DomainError(INVALID_STATUS_TRANSITION, EMERGENCY_NOT_GROUPABLE_REASON, 409)
 
         case = self._case_for(ticket, category_id)
+        touched: dict[UUID, IncidentCase] = {}
         for member in [ticket, *members]:
             existing = self.db.scalar(
                 select(IncidentCaseMember.ticket_id).where(IncidentCaseMember.ticket_id == member.id)
@@ -1245,9 +1528,25 @@ class AgentResultService(AgentServiceBase):
                 )
             )
             self.db.flush()
+            touched[case.id] = case
 
-        self._recompute_density(case)
-        return case
+        for entry in touched.values():
+            self._recompute_density(entry)
+        self.db.flush()
+
+        # The case the triggering ticket ended up in -- not always the last one
+        # written, and not always one this call touched: the ticket may already
+        # have been a member before the proposal arrived.
+        primary = self._case_of(ticket) or case
+        touched.setdefault(primary.id, primary)
+        return GroupingPersistResult(primary=primary, cases=list(touched.values()))
+
+    def _case_of(self, ticket: Ticket) -> IncidentCase | None:
+        """The case holding this ticket, if any."""
+        membership = self.db.scalar(
+            select(IncidentCaseMember).where(IncidentCaseMember.ticket_id == ticket.id)
+        )
+        return None if membership is None else self.db.get(IncidentCase, membership.case_id)
 
     def _case_for(self, ticket: Ticket, category_id: UUID) -> IncidentCase:
         """Reuse the open case that already holds one of this ticket's neighbours.
@@ -1332,49 +1631,6 @@ class AgentResultService(AgentServiceBase):
     # Scoring.
     # ------------------------------------------------------------------
 
-    def _apply_scoring(
-        self,
-        ticket: Ticket,
-        snapshot: dict[str, object],
-        density: int,
-        run: AIAnalysisRun,
-    ) -> None:
-        """Pin exactly one scoring rule version and store it on the run.
-
-        The pinned id is what makes the run reproducible: a later edit to the
-        active rule set must not change what this analysis decided.
-        """
-        if ticket.severity is None:
-            raise DomainError(CATEGORY_REQUIRED, "Agent did not provide Severity for scoring.", 409)
-
-        rule_version = self.db.scalar(
-            select(ScoringRuleVersion).where(ScoringRuleVersion.is_active.is_(True)).with_for_update(read=True)
-        )
-        scoring = ScoringService(rule_version.config if rule_version else None)
-        ceiling = snapshot.get("priority_ceiling")
-        outcome = scoring.calculate_dynamic(
-            category_code=str(snapshot["code"]),
-            base_score=int(snapshot["base_score"]),
-            severity=ticket.severity,
-            location_type_code=(
-                ticket.location.location_type.code if ticket.location and ticket.location.location_type else None
-            ),
-            density_count=density,
-            red_flag_detected=ticket.red_flag_detected,
-            priority_ceiling=Priority(ceiling) if ceiling in {"P1", "P2", "P3"} else None,
-        )
-
-        ticket.score_total = outcome.score_total
-        ticket.priority = outcome.priority_final
-        CoordinatorScoringSupport(self.db, scoring).recalculate_sla(ticket)
-
-        run.rule_version_id = rule_version.id if rule_version else None
-        run.score_components = dict(outcome.components)
-        run.score_total = outcome.score_total
-        run.priority_raw = outcome.priority_raw
-        run.priority_final = outcome.priority_final
-        run.ceiling_applied = outcome.ceiling_applied
-
     # ------------------------------------------------------------------
     # Notifications -- reduced facts only, never another reporter's identity.
     # ------------------------------------------------------------------
@@ -1408,6 +1664,6 @@ __all__ = [
     "GROUPING_NO_MATCH",
     "GROUPING_PENDING",
     "GROUPING_WAITING_DUPLICATE_DECISION",
-    "GROUPING_WAITING_P3_REVIEW",
+    "GROUPING_WAITING_EMERGENCY_REVIEW",
     "AgentResultService",
 ]

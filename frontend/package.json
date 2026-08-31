@@ -6,8 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "typecheck": "tsc --noEmit && tsc --noEmit -p tests/tsconfig.json",
-    "test": "node --test \"tests/**/*.test.ts\""
+    "typecheck": "tsc --noEmit --incremental false && tsc --noEmit -p tests/tsconfig.json",
+    "test": "node --experimental-strip-types --test \"tests/**/*.test.ts\""
   },
   "dependencies": {
     "lucide-react": "^0.468.0",

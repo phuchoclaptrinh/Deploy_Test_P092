@@ -25,12 +25,18 @@ surface, not something to drop quietly.
 
 from datetime import UTC, datetime
 from enum import Enum
-from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from src.models.enums import Severity
+from src.domain.risk_scoring import (
+    CRITERION_NAMES,
+    MAX_CRITERION_SCORE,
+    MIN_CRITERION_SCORE,
+    BlockerCode,
+    RiskCriterionScores,
+)
+from src.models.enums import EmergencyDecision, EmergencyReviewStatus
 
 # Stamped on `ai_analysis_runs.contract_version`. Not a switch -- there is one
 # contract -- but the column is part of the audit trail, so rows written by the
@@ -49,14 +55,20 @@ RECENT_COMPLETION_WINDOW_MINUTES = 60
 
 
 class AgentExitReason(str, Enum):  # noqa: UP042
-    """The seven ways one analysis round can end. All seven are business
-    answers."""
+    """The six ways one analysis round can end. All six are business answers.
 
-    RED_FLAG = "RED_FLAG"
-    #: Classification finished and the ticket scores P3. P3 is the emergency
-    #: priority here (five-minute SLA), so the round stops before the duplicate
-    #: stage and hands the ticket to a human. See `P3ReviewStatus`.
-    P3_REVIEW_REQUIRED = "P3_REVIEW_REQUIRED"
+    `RED_FLAG` is gone. Danger is no longer a separate exit: it is either a
+    blocker code that floors the priority at P5, or a `human_safety` score that
+    gets there on its own, and either way the round continues into the
+    duplicate stage. `P3_REVIEW_REQUIRED` is gone with it -- same gate, new
+    band, new name.
+    """
+
+    #: Classification finished and the ticket is P5. The emergency warning has
+    #: already been raised; the round still runs duplicate (see
+    #: `docs/risk_scoring_v2.md` §7) and then hands the ticket to a human.
+    #: It never runs grouping. See `EmergencyReviewStatus`.
+    EMERGENCY_REVIEW_REQUIRED = "EMERGENCY_REVIEW_REQUIRED"
     DUPLICATE_EXISTING = "DUPLICATE_EXISTING"
     DUPLICATE_UNCERTAIN = "DUPLICATE_UNCERTAIN"
     ANALYSIS_COMPLETE = "ANALYSIS_COMPLETE"
@@ -64,41 +76,14 @@ class AgentExitReason(str, Enum):  # noqa: UP042
     INSUFFICIENT_INPUT = "INSUFFICIENT_INPUT"
 
 
-class P3ReviewStatus(str, Enum):  # noqa: UP042
-    """The mandatory human gate in front of the emergency priority.
-
-    P3 means "respond within five minutes". Nothing automatic should decide
-    that on its own and nothing automatic should keep running behind it, so a
-    P3 classification parks the ticket here until a coordinator either confirms
-    the emergency or downgrades it.
-    """
-
-    NOT_REQUIRED = "NOT_REQUIRED"
-    PENDING = "PENDING"
-    CONFIRMED = "CONFIRMED"
-    DOWNGRADED = "DOWNGRADED"
-
-
-class P3Decision(str, Enum):  # noqa: UP042
-    """The only two things a coordinator may do at the P3 gate.
-
-    Confirming ends the automation deliberately: correlating an emergency with
-    other tickets is not worth the minutes it costs. Downgrading is the only
-    way back into the pipeline, and it cannot land on P3 again -- confirming is
-    the action for that.
-    """
-
-    CONFIRM_P3 = "CONFIRM_P3"
-    DOWNGRADE_SEVERITY = "DOWNGRADE_SEVERITY"
-
-
-class AgentSeveritySource(str, Enum):  # noqa: UP042
-    IMAGE = "IMAGE"
-    TEXT = "TEXT"
-
-
 class AgentQuestionKind(str, Enum):  # noqa: UP042
-    """The only four things a resident may be asked.
+    """The only eight things a resident may be asked.
+
+    Five of them replace the single `SEVERITY_CONFIRMATION`, one per criterion.
+    A question that asks "how serious is it?" gets an answer about how upset the
+    resident is; a question that asks "is water still coming out right now?"
+    gets an answer that moves exactly one score. The Agent must know which
+    number it is missing before it is allowed to spend a question on it.
 
     Notably absent: "are these two reports the same?" and "do these tickets
     belong to one case?". Duplicate and grouping are judgements about other
@@ -107,9 +92,24 @@ class AgentQuestionKind(str, Enum):  # noqa: UP042
     """
 
     CATEGORY_CONFIRMATION = "CATEGORY_CONFIRMATION"
-    SEVERITY_CONFIRMATION = "SEVERITY_CONFIRMATION"
     LOCATION_CONFIRMATION = "LOCATION_CONFIRMATION"
     RECENT_COMPLETION = "RECENT_COMPLETION"
+    SAFETY_CONFIRMATION = "SAFETY_CONFIRMATION"
+    SPREAD_CONFIRMATION = "SPREAD_CONFIRMATION"
+    ESSENTIAL_FUNCTION_CONFIRMATION = "ESSENTIAL_FUNCTION_CONFIRMATION"
+    AFFECTED_SCOPE_CONFIRMATION = "AFFECTED_SCOPE_CONFIRMATION"
+    DETERIORATION_CONFIRMATION = "DETERIORATION_CONFIRMATION"
+
+
+#: Which criterion each targeted question is trying to pin down. The Agent may
+#: only ask one of these when the named criterion is in `unknown_facts`.
+QUESTION_KIND_CRITERION: dict[AgentQuestionKind, str] = {
+    AgentQuestionKind.SAFETY_CONFIRMATION: "human_safety",
+    AgentQuestionKind.SPREAD_CONFIRMATION: "property_spread",
+    AgentQuestionKind.ESSENTIAL_FUNCTION_CONFIRMATION: "essential_function",
+    AgentQuestionKind.AFFECTED_SCOPE_CONFIRMATION: "affected_scope",
+    AgentQuestionKind.DETERIORATION_CONFIRMATION: "deterioration_speed",
+}
 
 
 #: The two -- and only two -- answers to a `LOCATION_CONFIRMATION`.
@@ -142,6 +142,57 @@ class AgentSearchPurpose(str, Enum):  # noqa: UP042
 
     DUPLICATE = "DUPLICATE"
     GROUPING = "GROUPING"
+
+
+# ---------------------------------------------------------------------------
+# The risk assessment the Agent produces.
+# ---------------------------------------------------------------------------
+
+
+class RiskCriteriaPayload(BaseModel):
+    """The five judgements, and the only numbers the Agent is allowed to send.
+
+    There is no `risk_score`, no `priority` and no `severity` field, by
+    construction: `extra="forbid"` means a model that invents one produces a
+    validation error rather than a priority nobody computed. The weights, the
+    thresholds and the arithmetic all live in `src.domain.risk_scoring`.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    human_safety: int = Field(ge=MIN_CRITERION_SCORE, le=MAX_CRITERION_SCORE)
+    property_spread: int = Field(ge=MIN_CRITERION_SCORE, le=MAX_CRITERION_SCORE)
+    essential_function: int = Field(ge=MIN_CRITERION_SCORE, le=MAX_CRITERION_SCORE)
+    affected_scope: int = Field(ge=MIN_CRITERION_SCORE, le=MAX_CRITERION_SCORE)
+    deterioration_speed: int = Field(ge=MIN_CRITERION_SCORE, le=MAX_CRITERION_SCORE)
+
+    def to_domain(self) -> RiskCriterionScores:
+        return RiskCriterionScores(**{name: getattr(self, name) for name in CRITERION_NAMES})
+
+
+class RiskEvidencePayload(BaseModel):
+    """What the Agent saw, per criterion, in its own words.
+
+    Empty lists are allowed and mean "nothing in the report spoke to this",
+    which is a legitimate reason for a zero. `unknown_facts` on the result is
+    where "I could not tell" goes, and the two must not be confused: a
+    coordinator reading a 0 needs to know which of the two produced it.
+    """
+
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    human_safety: list[str] = Field(default_factory=list, max_length=10)
+    property_spread: list[str] = Field(default_factory=list, max_length=10)
+    essential_function: list[str] = Field(default_factory=list, max_length=10)
+    affected_scope: list[str] = Field(default_factory=list, max_length=10)
+    deterioration_speed: list[str] = Field(default_factory=list, max_length=10)
+    #: Keyed by blocker code, not a flat list.
+    #:
+    #: Each code sets a different floor -- seven at P5, four at P4 -- so "which
+    #: line justified which floor" is a question a coordinator will actually
+    #: ask. A single pooled list cannot answer it: three blockers and two lines
+    #: of evidence is a payload nobody can audit, and it validated.
+    blockers: dict[str, list[str]] = Field(default_factory=dict)
 
 
 # ---------------------------------------------------------------------------
@@ -253,9 +304,17 @@ class AgentAnalysisResult(BaseModel):
     text_category_id: UUID | None = None
     image_category_id: UUID | None = None
 
-    severity: Severity | None = None
-    severity_source: AgentSeveritySource | None = None
-    red_flag: bool = False
+    #: The five 0-4 judgements. Null only when the round ended before a
+    #: classification could be established.
+    criteria: RiskCriteriaPayload | None = None
+    #: Named emergency facts. Each one sets a floor under the priority; none of
+    #: them adds points. Backend rejects a code it does not know rather than
+    #: ignoring it.
+    blockers: list[BlockerCode] = Field(default_factory=list, max_length=len(BlockerCode))
+    evidence: RiskEvidencePayload = Field(default_factory=RiskEvidencePayload)
+    #: Criterion names the Agent could not establish, so a low score is not read
+    #: as a checked-and-clear finding.
+    unknown_facts: list[str] = Field(default_factory=list, max_length=len(CRITERION_NAMES))
     #: Why the Agent classified the ticket the way it did. Shown to management.
     ai_reason: str | None = Field(default=None, max_length=1000)
     #: Echoed back so finalize can detect a location that moved mid-analysis.
@@ -280,19 +339,57 @@ class AgentAnalysisResult(BaseModel):
 
     @model_validator(mode="after")
     def validate_invariants(self):
-        self._validate_red_flag()
+        self._validate_risk()
         self._validate_duplicate()
         self._validate_classification()
         return self
 
-    def _validate_red_flag(self) -> None:
-        if self.red_flag and self.exit_reason is not AgentExitReason.RED_FLAG:
-            raise ValueError("A red flag forces exit_reason=RED_FLAG.")
-        if self.exit_reason is AgentExitReason.RED_FLAG:
-            if not self.red_flag:
-                raise ValueError("RED_FLAG requires red_flag=true.")
-            if self.duplicate is not None:
-                raise ValueError("RED_FLAG must not close the new ticket as a duplicate.")
+    def _validate_risk(self) -> None:
+        if len(set(self.blockers)) != len(self.blockers):
+            raise ValueError("blockers must not repeat a code.")
+        unknown = set(self.unknown_facts) - set(CRITERION_NAMES)
+        if unknown:
+            raise ValueError(f"unknown_facts may only name criteria; got {sorted(unknown)}.")
+        self._validate_blocker_evidence()
+        self._validate_unknown_facts_agree_with_criteria()
+
+    def _validate_blocker_evidence(self) -> None:
+        """Every claimed blocker carries its own evidence, and only claimed ones do.
+
+        A blocker floors the priority with no score behind it, so what the Agent
+        saw is the only thing a reviewer has to check it against. Checked per
+        code rather than in aggregate: the old rule accepted three blockers
+        backed by one line, which reads as evidence and is not.
+        """
+        claimed = {code.value for code in self.blockers}
+        evidenced = {
+            code for code, lines in self.evidence.blockers.items() if [item for item in lines if item.strip()]
+        }
+        missing = sorted(claimed - evidenced)
+        if missing:
+            raise ValueError(f"Every blocker must come with its own evidence; missing {missing}.")
+        # Evidence for a code that was not claimed is not harmless: it would
+        # show under an emergency heading in the audit view for a floor nobody
+        # applied.
+        stray = sorted(set(self.evidence.blockers) - claimed)
+        if stray:
+            raise ValueError(f"evidence.blockers names codes that are not claimed; got {stray}.")
+
+    def _validate_unknown_facts_agree_with_criteria(self) -> None:
+        """A criterion is scored or it is unknown, and never both.
+
+        `criteria` is all-or-nothing by construction, so this reduces to one
+        rule at this layer: a payload that carries all five scores has nothing
+        left to be unsure about. The model boundary in `agents/llm_client.py`
+        enforces the same agreement field by field, where the scores are still
+        individually nullable; this holds a caller who posts the result payload
+        directly to the same contract.
+        """
+        if self.criteria is not None and self.unknown_facts:
+            raise ValueError(
+                "unknown_facts must be empty once all five criteria are scored; "
+                f"got {sorted(self.unknown_facts)}."
+            )
 
     def _validate_duplicate(self) -> None:
         if self.exit_reason is AgentExitReason.DUPLICATE_EXISTING:
@@ -315,8 +412,10 @@ class AgentAnalysisResult(BaseModel):
 
     def _validate_classification(self) -> None:
         if self.exit_reason is AgentExitReason.INSUFFICIENT_INPUT:
-            if self.category_id is not None or self.severity is not None:
+            if self.category_id is not None or self.criteria is not None:
                 raise ValueError("INSUFFICIENT_INPUT must not report a classification it could not establish.")
+            if self.blockers:
+                raise ValueError("INSUFFICIENT_INPUT must not report blockers it could not establish.")
             if self.duplicate_candidates:
                 raise ValueError("INSUFFICIENT_INPUT must not carry duplicate candidates.")
             return
@@ -326,26 +425,25 @@ class AgentAnalysisResult(BaseModel):
             # is reported as-is and a coordinator finishes the job.
             return
 
-        if self.severity is None or self.severity_source is None:
-            raise ValueError(f"{self.exit_reason.value} requires severity and severity_source.")
+        if self.criteria is None:
+            raise ValueError(f"{self.exit_reason.value} requires the five risk criteria.")
 
-        if self.exit_reason is AgentExitReason.RED_FLAG:
-            # An emergency is answered by speed: the ticket goes straight to P3
-            # with no score, so the Category is not what decides its handling.
-            # Rejecting a genuine danger report because the Category could not
-            # be pinned down would turn it into a technical failure, which is
-            # the one outcome a red flag must never become.
+        if self.exit_reason is AgentExitReason.EMERGENCY_REVIEW_REQUIRED:
+            # An emergency is answered by speed, and the Category is not what
+            # decides how it is handled. Rejecting a genuine danger report
+            # because the Category could not be pinned down would turn it into a
+            # technical failure, which is the one outcome an emergency must
+            # never become.
+            #
+            # Note what is *not* asserted here any more: v1 refused an emergency
+            # payload that carried duplicate work, because the gate sat in front
+            # of the duplicate stage. v2 inverts that -- the warning fires first
+            # and duplicate runs behind it -- so duplicate evidence on this exit
+            # is expected rather than suspicious.
             return
 
         if self.category_id is None:
             raise ValueError(f"{self.exit_reason.value} requires exactly one final category_id.")
-
-        if self.exit_reason is AgentExitReason.P3_REVIEW_REQUIRED:
-            # The gate is in front of the duplicate stage, so a P3 payload that
-            # carries duplicate work is evidence the gate was bypassed. That is
-            # worth failing on rather than storing.
-            if self.duplicate_candidates or self.duplicate_verdict is not None or self.duplicate is not None:
-                raise ValueError("P3_REVIEW_REQUIRED must stop before any duplicate processing.")
 
 
 # ---------------------------------------------------------------------------
@@ -359,8 +457,6 @@ class CategoryCatalogToolItem(BaseModel):
 
     category_id: UUID
     display_name: str
-    priority_ceiling: Literal["P1", "P2", "P3", "UNLIMITED"]
-    base_score: int
 
 
 class CategoryCatalogToolResponse(BaseModel):
@@ -458,10 +554,13 @@ __all__ = [
     "AgentExitReason",
     "AgentGroupingResult",
     "AgentQuestionKind",
-    "P3Decision",
-    "P3ReviewStatus",
+    "QUESTION_KIND_CRITERION",
+    "BlockerCode",
+    "EmergencyDecision",
+    "EmergencyReviewStatus",
+    "RiskCriteriaPayload",
+    "RiskEvidencePayload",
     "AgentSearchPurpose",
-    "AgentSeveritySource",
     "AgentTicketRelation",
     "AgentToolUsage",
     "AskResidentRequest",

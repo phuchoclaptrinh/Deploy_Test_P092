@@ -98,14 +98,28 @@ def test_the_pool_holds_unassigned_eligible_work(world):
     assert result.units[0].p80_seconds == 4 * 3600
 
 
-def test_a_p3_emergency_is_on_the_board_even_though_it_is_barred_from_automation(world):
+def test_a_ticket_automation_escalated_is_still_on_the_board(world):
     """§2 sends everything the automatic path refuses to Building Management.
 
-    This board is where those land, so the one priority automation must never
-    touch is exactly the one a manager must be able to place by hand.
+    This board is where those land -- a ticket a dispatch pass escalated for
+    want of an eligible technician is exactly the placement decision a manager
+    is here to make.
     """
-    ticket = placeable(world, priority=Priority.P3, grouping_status="NOT_ELIGIBLE")
+    ticket = placeable(world, priority=Priority.P4, grouping_status="NOT_ELIGIBLE")
     assert [unit.unit_id for unit in board(world).units] == [f"ticket:{ticket.id}"]
+
+
+def test_an_emergency_is_not_on_the_board_at_all(world):
+    """The one thing that changed with risk scoring v2.
+
+    Under v1 the board was where an emergency went precisely *because*
+    automation refused it. v2 refuses it everywhere: Building Management
+    handles a P5 by walking there, not by dropping it on a technician's
+    column, so offering it as a draggable card would be offering an action the
+    confirm step is required to reject.
+    """
+    placeable(world, priority=Priority.P5, grouping_status="NOT_ELIGIBLE")
+    assert board(world).units == []
 
 
 def test_an_already_assigned_ticket_leaves_the_pool(world):
@@ -129,7 +143,7 @@ def test_a_ticket_waits_for_grouping_before_it_enters_the_board(world):
     """Grouping is a gate in front of the visual assignment pool."""
     placeable(world, grouping_status="PENDING")
     placeable(world, grouping_status="WAITING_DUPLICATE_DECISION")
-    placeable(world, grouping_status="WAITING_P3_MANAGEMENT_REVIEW")
+    placeable(world, grouping_status="WAITING_EMERGENCY_MANAGEMENT_REVIEW")
     placeable(world, grouping_status="BLOCKED")
     placeable(world, grouping_status=NO_ANALYSIS_RUN)
 

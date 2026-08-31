@@ -2,7 +2,20 @@
 
 > Hệ thống tiếp nhận, phân loại và ưu tiên phản ánh sự cố trong chung cư, với một AI Agent (LangGraph) làm bước phân loại tự động giữa Cư dân và Ban quản lý.
 >
-> Tài liệu này mô tả kiến trúc **đúng như code hiện tại** (branch `hungphuc`), không phải kiến trúc dự kiến.
+> **Đã lỗi thời — giữ lại làm tài liệu lịch sử.** Sơ đồ dưới đây mô tả kiến
+> trúc `v3` với hai bước trích xuất text/ảnh riêng, `red_flag`, `severity` và
+> công thức `base_score + location_bonus + density + severity`. Không phần nào
+> trong số đó còn tồn tại: pipeline đã gộp thành một lượt phân loại đa phương
+> thức, và rubric rủi ro v2 đã thay toàn bộ công thức chấm điểm.
+>
+> Nguồn đúng cho từng phần:
+>
+> - Chấm điểm và mức ưu tiên: [`docs/risk_scoring_v2.md`](risk_scoring_v2.md)
+> - Luồng phân loại: [`docs/ui/CLASSIFICATION_FLOW.md`](ui/CLASSIFICATION_FLOW.md)
+> - Vận hành và migration: [`docs/operations.md`](operations.md)
+>
+> Viết lại sơ đồ này là việc riêng, không gộp vào đợt đổi rubric — một sơ đồ sai
+> một nửa khó đọc hơn một sơ đồ nói rõ nó đã cũ.
 
 ---
 

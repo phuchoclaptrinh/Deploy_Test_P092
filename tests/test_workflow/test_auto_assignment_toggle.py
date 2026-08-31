@@ -20,6 +20,7 @@ from src.database.models.dispatch import DispatchEvent
 from src.database.models.ticket_assignment import TicketAssignment
 from src.models.api.errors import CONFLICT_VERSION, DomainError
 from src.models.enums import ClassificationStatus, DispatchEventStatus, Priority, TicketStatus
+from src.services.auto_approval import eligible_for_automatic_approval
 from src.services.auto_assignment_settings_service import AutoAssignmentSettingsService
 from tests.test_workflow.factories import build_world, make_assignment, make_ticket
 
@@ -38,6 +39,31 @@ def eligible(world, *, priority=Priority.P2, **kwargs):
         priority=priority,
         **kwargs,
     )
+
+
+@pytest.mark.parametrize("priority", [Priority.P1, Priority.P2, Priority.P3, Priority.P4])
+def test_every_non_emergency_band_is_eligible_for_automatic_approval(world, priority):
+    ticket = make_ticket(
+        world,
+        category=world.water,
+        status=TicketStatus.NEW,
+        classification_status=ClassificationStatus.RESOLVED,
+        priority=priority,
+    )
+
+    assert eligible_for_automatic_approval(world.db, ticket) is True
+
+
+def test_the_emergency_band_is_not_eligible_for_automatic_approval(world):
+    ticket = make_ticket(
+        world,
+        category=world.water,
+        status=TicketStatus.NEW,
+        classification_status=ClassificationStatus.RESOLVED,
+        priority=Priority.P5,
+    )
+
+    assert eligible_for_automatic_approval(world.db, ticket) is False
 
 
 def test_the_switch_starts_off(world):
@@ -66,7 +92,7 @@ def test_turning_it_on_queues_the_backlog(world):
 
 def test_the_backlog_sweep_skips_what_automation_must_not_touch(world):
     """§2's conditions apply to the backlog exactly as they do to new reports."""
-    eligible(world, priority=Priority.P3)
+    eligible(world, priority=Priority.P5)
     master = eligible(world)
     duplicate = eligible(world)
     duplicate.duplicate_of_ticket_id = master.id

@@ -10,7 +10,7 @@ Three functions, and the split between them is the latency contract:
   duplicate processing is final -- either the round ended DIFFERENT_INCIDENT, or
   management confirmed "not duplicate" -- and it must never delay the resident.
 
-`resume_after_p3_downgrade` is the fourth entry point and the only way back
+`resume_after_emergency_downgrade` is the fourth entry point and the only way back
 into the pipeline from the emergency gate. It re-enters the same graph at
 `search_duplicates` with the classification a coordinator has just reviewed:
 re-classifying would only produce the P3 they overruled.
@@ -61,6 +61,7 @@ from src.services.agent_result_service import (
     GROUPING_NO_MATCH,
     GROUPING_NOT_ELIGIBLE,
 )
+from src.services.risk_assessment_service import RiskAssessmentService
 
 logger = logging.getLogger(__name__)
 
@@ -143,14 +144,18 @@ def _build_initial_state(backend: AgentBackendService, session: AIAnalysisSessio
         # The scoring view of the same catalog. Separate from `catalog` because
         # it carries the Backend-internal `code`, which the P3 check needs and
         # no prompt is allowed to see.
-        scoring_catalog=backend._snapshot_by_id(session),
         conversation=[],
         incident_facts=[],
         # Set only by the resident answering a Category question, and fixed for
         # the rest of the round once it is.
         confirmed_category_id=None,
         confirmed_category_name=None,
-        red_flag=False,
+        criteria=None,
+        blockers=[],
+        evidence={},
+        unknown_facts=[],
+        emergency_warned=False,
+        emergency_downgraded=False,
         understandable=True,
         duplicate_candidates=[],
         duplicate_candidates_revision=NEVER_RAN,
@@ -227,20 +232,20 @@ def resume_analysis(session_id: UUID, llm: AgentLLMClient | None = None) -> Anal
     return outcome
 
 
-def resume_after_p3_downgrade(ticket_id: UUID, llm: AgentLLMClient | None = None) -> AnalysisOutcome:
-    """Continue a ticket a coordinator has just downgraded out of P3.
+def resume_after_emergency_downgrade(ticket_id: UUID, llm: AgentLLMClient | None = None) -> AnalysisOutcome:
+    """Continue a ticket a coordinator has just downgraded out of P5.
 
     The classification is already settled and already reviewed by a human, so
     this re-enters the graph at `search_duplicates` rather than at `classify`.
-    Re-classifying would be worse than wasteful: the severity has not changed,
-    so it would score P3 again and re-open the gate the coordinator just closed.
+    Re-classifying would be worse than wasteful: the criteria have not changed,
+    so it would score P5 again and re-open the gate the coordinator just closed.
 
     A fresh analysis session is opened for it. That is what gives the duplicate
     pass its own tool budget, its own catalog snapshot and its own audit trail,
     and it is why the resulting run is a second run on the ticket rather than
     an edit to the first.
     """
-    with root_span("analysis.p3_downgrade", ticket_id=str(ticket_id), entry="p3_downgrade") as active:
+    with root_span("analysis.emergency_downgrade", ticket_id=str(ticket_id), entry="emergency_downgrade") as active:
         outcome = _settle(_start_duplicate_stage(ticket_id, llm))
         annotate(active, output=_trace_output(outcome))
     _grouping_follow_up(outcome, llm)
@@ -262,10 +267,11 @@ def _start_duplicate_stage(ticket_id: UUID, llm: AgentLLMClient | None) -> Analy
                 joinedload(Ticket.location).joinedload(Location.location_type),
             ],
         )
-        if ticket is None or ticket.category_id is None or ticket.severity is None:
+        assessment = RiskAssessmentService(db).current(ticket) if ticket is not None else None
+        if ticket is None or ticket.category_id is None or assessment is None:
             return AnalysisOutcome(
                 technical_failure={
-                    "stage": "p3_downgrade",
+                    "stage": "emergency_downgrade",
                     "error_code": "TicketNotClassified",
                     "detail": str(ticket_id),
                 },
@@ -276,30 +282,43 @@ def _start_duplicate_stage(ticket_id: UUID, llm: AgentLLMClient | None) -> Analy
         tracer = get_tracer(session_id=str(session.id), ticket_id=str(ticket_id))
         state = _build_initial_state(backend, session, ticket)
         # Hand the graph the reviewed classification instead of asking for a
-        # new one. `severity_source` is TEXT because the value came off the
-        # ticket, not out of a fresh look at the photos.
+        # new one. The scores come off the recorded assessment, not out of a
+        # fresh look at the photos: a second opinion here would overwrite the
+        # judgement the coordinator just reviewed.
         state["category_id"] = str(ticket.category_id)
-        state["severity"] = ticket.severity.value
-        state["severity_source"] = "TEXT"
+        state["criteria"] = {
+            "human_safety": assessment.human_safety_score,
+            "property_spread": assessment.property_spread_score,
+            "essential_function": assessment.essential_function_score,
+            "affected_scope": assessment.ai_scope_score,
+            "deterioration_speed": assessment.deterioration_speed_score,
+        }
+        state["blockers"] = list(assessment.blocker_codes or [])
+        state["evidence"] = dict(assessment.evidence or {})
+        state["unknown_facts"] = list(assessment.unknown_facts or [])
+        # The coordinator has ruled. Without this the router would re-derive P5
+        # from the same criteria and send the ticket straight back to the gate.
+        state["emergency_downgraded"] = True
+        state["emergency_warned"] = True
         state["ai_reason"] = previous_reason[0] if previous_reason else None
         state["incident_facts"] = previous_reason
         state.update(advance_evidence_revision(state))
         tracer.emit(
             "run_start",
-            kind="p3_downgrade",
+            kind="emergency_downgrade",
             model_version=MODEL_VERSION,
             catalog_version=state.get("catalog_version"),
             category_id=state.get("category_id"),
-            severity=state.get("severity"),
+            criteria=state.get("criteria"),
         )
         graph = build_graph(db, llm or OpenAIAgentLLMClient(), tracer, entry_point="search_duplicates")
         final_state = graph.invoke(state, config=_thread_config(session.id))
-        _emit_run_outcome(tracer, final_state, kind="p3_downgrade")
+        _emit_run_outcome(tracer, final_state, kind="emergency_downgrade")
         return _outcome_from_state(final_state, session.id, ticket_id)
     except Exception as exc:
         logger.exception("Duplicate stage after a P3 downgrade failed for ticket %s.", ticket_id)
         if tracer is not None:
-            tracer.emit("run_error", kind="p3_downgrade", error_type=type(exc).__name__, error=str(exc))
+            tracer.emit("run_error", kind="emergency_downgrade", error_type=type(exc).__name__, error=str(exc))
         return AnalysisOutcome(
             technical_failure={"stage": "graph", "error_code": type(exc).__name__, "detail": str(exc)},
             session_id=session.id if session else None,
@@ -447,7 +466,7 @@ def _emit_run_outcome(tracer: Tracer, result: object, *, kind: str) -> None:
         kind=kind,
         exit_reason=state.get("exit_reason"),
         category_id=state.get("category_id"),
-        severity=state.get("severity"),
+        criteria=state.get("criteria"),
         duplicate_verdict=state.get("duplicate_verdict"),
     )
 
@@ -685,7 +704,7 @@ def _record_grouping_blocked(ticket_id: UUID) -> None:
 __all__ = [
     "MODEL_VERSION",
     "AnalysisOutcome",
-    "resume_after_p3_downgrade",
+    "resume_after_emergency_downgrade",
     "resume_analysis",
     "run_analysis",
     "run_case_grouping",

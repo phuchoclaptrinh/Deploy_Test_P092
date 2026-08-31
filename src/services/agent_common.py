@@ -254,16 +254,16 @@ class AgentServiceBase:
             parts.append(f'hiện tượng: "{excerpt}"')
         return " · ".join(parts)
 
-    def p3_gate_is_open(self, ticket_id) -> bool:
+    def emergency_gate_is_open(self, ticket_id) -> bool:
         """True while a ticket is held at the emergency review gate.
 
-        Delegates to `p3_review_guard`, which is where the question is answered
+        Delegates to `emergency_review_guard`, which is where the question is answered
         for the whole codebase -- coordinator services ask it too, and two
         implementations that could drift is exactly how a gate develops a hole.
         """
-        from src.services.p3_review_guard import p3_review_is_pending
+        from src.services.emergency_review_guard import emergency_review_is_pending
 
-        return p3_review_is_pending(self.db, ticket_id)
+        return emergency_review_is_pending(self.db, ticket_id)
 
     @staticmethod
     def _snapshot_by_id(
@@ -325,7 +325,7 @@ class AgentServiceBase:
         ticket.status = TicketStatus.INVALID
         ticket.classification_status = ClassificationStatus.FAILED
         ticket.priority = None
-        ticket.score_total = None
+        ticket.risk_score = None
         ticket.sla_due_at = None
         if invalid_reason is not None:
             ticket.invalid_reason = invalid_reason.value

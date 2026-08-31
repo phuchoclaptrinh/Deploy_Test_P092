@@ -37,9 +37,13 @@ P0_REVIEW_REQUIRED = "P0_REVIEW_REQUIRED"
 #: The mandatory human gate in front of the emergency Priority. Distinct
 #: from P0_REVIEW_REQUIRED and from INVALID_STATUS_TRANSITION: it does not
 #: mean "wrong state, try later", it means one specific action applies.
-P3_REVIEW_REQUIRED = "P3_REVIEW_REQUIRED"
+EMERGENCY_REVIEW_REQUIRED = "EMERGENCY_REVIEW_REQUIRED"
 CATEGORY_REQUIRED = "CATEGORY_REQUIRED"
-SEVERITY_REQUIRED = "SEVERITY_REQUIRED"
+#: A ticket reached a human with no risk assessment at all, so there is nothing
+#: to derive a Priority from and the coordinator has to score it.
+RISK_ASSESSMENT_REQUIRED = "RISK_ASSESSMENT_REQUIRED"
+#: Every assignment path refuses a P5 ticket. `docs/risk_scoring_v2.md` §8.
+EMERGENCY_MANUAL_ONLY = "EMERGENCY_MANUAL_ONLY"
 OVERRIDE_REASON_REQUIRED = "OVERRIDE_REASON_REQUIRED"
 CONFLICT_VERSION = "CONFLICT_VERSION"
 ATTACHMENT_NOT_FOUND = "ATTACHMENT_NOT_FOUND"
@@ -67,5 +71,10 @@ COMPLETION_EVIDENCE_REQUIRED = "COMPLETION_EVIDENCE_REQUIRED"
 INFORMATION_REQUEST_NOT_FOUND = "INFORMATION_REQUEST_NOT_FOUND"
 STORAGE_NOT_CONFIGURED = "STORAGE_NOT_CONFIGURED"
 DATABASE_NOT_CONFIGURED = "DATABASE_NOT_CONFIGURED"
+#: A pasted simulation input the parser refused. Separate from
+#: VALIDATION_ERROR because the payload itself is schema-valid -- the problem is
+#: inside one row, and `details` carries which row and which field so the screen
+#: can point at the offending cell instead of rejecting the whole file.
+SIMULATION_INPUT_INVALID = "SIMULATION_INPUT_INVALID"
 VALIDATION_ERROR = "VALIDATION_ERROR"
 INTERNAL_ERROR = "INTERNAL_ERROR"

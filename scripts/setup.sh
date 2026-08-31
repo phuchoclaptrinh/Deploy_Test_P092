@@ -142,8 +142,8 @@ echo "  $STEP. Kiểm tra:  http://localhost:8000/ready  và  http://localhost:3
 
 cat <<'EOF'
 
-Nếu DB chưa có bảng: đặt ALLOW_LIVE_MIGRATION=true trong .env rồi chạy
-  .venv/bin/python -m alembic upgrade head
+Nếu DB chưa có bảng: bật cờ ngay trên lệnh, đừng để sẵn trong .env
+  ALLOW_LIVE_MIGRATION=true .venv/bin/python -m alembic upgrade head
 
 LƯU Ý: luôn dùng `python -m uvicorn`, đừng gọi `uvicorn` trần.
        Dạng `-m` bắt buộc chạy bằng interpreter của .venv nên không thể

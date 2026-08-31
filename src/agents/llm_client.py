@@ -24,17 +24,51 @@ from __future__ import annotations
 import logging
 from typing import Literal, Protocol
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 logger = logging.getLogger(__name__)
 
-SeverityLevel = Literal["LOW", "MEDIUM", "HIGH"]
+CriterionScore = Literal[0, 1, 2, 3, 4]
 DuplicateVerdictValue = Literal["SAME_INCIDENT", "DIFFERENT_INCIDENT", "UNCERTAIN"]
 QuestionKindValue = Literal[
     "NONE",
     "CATEGORY_CONFIRMATION",
-    "SEVERITY_CONFIRMATION",
     "LOCATION_CONFIRMATION",
+    "SAFETY_CONFIRMATION",
+    "SPREAD_CONFIRMATION",
+    "ESSENTIAL_FUNCTION_CONFIRMATION",
+    "AFFECTED_SCOPE_CONFIRMATION",
+    "DETERIORATION_CONFIRMATION",
+]
+
+#: Which criterion each targeted question is missing. Mirrors
+#: `agent_schemas.QUESTION_KIND_CRITERION`; kept as plain strings here because
+#: this module is the model boundary and imports no backend enums.
+QUESTION_CRITERION: dict[str, str] = {
+    "SAFETY_CONFIRMATION": "human_safety",
+    "SPREAD_CONFIRMATION": "property_spread",
+    "ESSENTIAL_FUNCTION_CONFIRMATION": "essential_function",
+    "AFFECTED_SCOPE_CONFIRMATION": "affected_scope",
+    "DETERIORATION_CONFIRMATION": "deterioration_speed",
+}
+
+CRITERION_FIELDS = tuple(QUESTION_CRITERION.values())
+
+#: The eleven named emergency facts. A model that returns anything else has its
+#: payload refused rather than the code silently dropped -- see
+#: `docs/risk_scoring_v2.md` §5.
+BlockerCodeValue = Literal[
+    "FIRE_OR_SMOKE",
+    "ELECTRIC_SHOCK_OR_LIVE_WIRE",
+    "GAS_LEAK_OR_ASPHYXIATION",
+    "SERIOUS_INJURY",
+    "PERSON_TRAPPED_IN_ELEVATOR",
+    "SOLE_ESCAPE_ROUTE_BLOCKED",
+    "ONGOING_VIOLENCE",
+    "SEWAGE_OVERFLOW",
+    "HEAVY_WATER_FLOW_SPREAD_RISK",
+    "TOTAL_UNPLANNED_UTILITY_LOSS",
+    "SOLE_TOILET_UNUSABLE",
 ]
 
 MAX_CLASSIFICATION_ATTEMPTS = 2
@@ -61,6 +95,55 @@ class ModelContractError(RuntimeError):
 # ---------------------------------------------------------------------------
 
 
+class BlockerFinding(BaseModel):
+    """Một mã sự kiện khẩn cấp, cùng bằng chứng của riêng nó.
+
+    Code và evidence đi cùng một đối tượng để một blocker không có bằng chứng
+    trở thành *không biểu diễn được*, thay vì bị một validator bắt sau. Trước
+    đây hai trường này là hai danh sách song song, và mọi bằng chứng nằm chung
+    một rổ: ba blocker với hai dòng bằng chứng thì không ai nói được dòng nào
+    thuộc mã nào, trong khi mỗi mã lại nâng sàn ưu tiên một cách khác nhau.
+    """
+
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    code: BlockerCodeValue = Field(description="Mã sự kiện khẩn cấp, lấy đúng trong danh sách cho phép.")
+    evidence: list[str] = Field(
+        min_length=1,
+        max_length=5,
+        description="Bằng chứng cụ thể cho RIÊNG mã này, trích từ mô tả hoặc ảnh. Không dùng chung cho mã khác.",
+    )
+
+    @model_validator(mode="after")
+    def _require_real_evidence(self):
+        if not [item for item in self.evidence if item.strip()]:
+            raise ValueError(f"{self.code} requires at least one non-empty line of evidence.")
+        return self
+
+
+class CriterionEvidence(BaseModel):
+    """Bằng chứng cho từng tiêu chí, tách riêng.
+
+    Trước đây backend sao chép toàn bộ `incident_facts` vào mọi tiêu chí có
+    điểm lớn hơn 0, nên một dòng "thang máy kẹt" hiện ra dưới cả `human_safety`
+    lẫn `property_spread` lẫn `deterioration_speed`. Người duyệt đọc bảng đó
+    không phân biệt được tiêu chí nào thật sự có căn cứ, mà đó chính là câu hỏi
+    họ đang cần trả lời khi muốn phản đối một điểm số.
+
+    Danh sách rỗng là hợp lệ và có nghĩa "không có gì trong phản ánh nói tới
+    tiêu chí này" -- lý do chính đáng cho một điểm 0. "Không biết" đi vào
+    `unknown_facts`, và hai điều đó không được lẫn.
+    """
+
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    human_safety: list[str] = Field(default_factory=list, max_length=5)
+    property_spread: list[str] = Field(default_factory=list, max_length=5)
+    essential_function: list[str] = Field(default_factory=list, max_length=5)
+    affected_scope: list[str] = Field(default_factory=list, max_length=5)
+    deterioration_speed: list[str] = Field(default_factory=list, max_length=5)
+
+
 class UnifiedClassification(BaseModel):
     """Toàn bộ kết quả của một vòng phân loại, đến từ một lời gọi model duy nhất."""
 
@@ -79,15 +162,44 @@ class UnifiedClassification(BaseModel):
         default=None,
         description="Chỉ là bằng chứng: Category mà các ảnh đang gợi ý, hoặc null khi không có ảnh.",
     )
-    severity: SeverityLevel | None = Field(
+    human_safety: CriterionScore | None = Field(
         default=None,
-        description="LOW/MEDIUM/HIGH dựa trên bằng chứng cụ thể. Chỉ để trống khi đang cần hỏi xác nhận mức độ nghiêm trọng.",
+        description="0-4: mức nguy hiểm trực tiếp cho thân thể người. 0 không có yếu tố an toàn; 4 đang đe doạ tính mạng hoặc đã có người bị thương.",
     )
-    red_flag: bool = Field(description="Nguy hiểm trực tiếp đến con người ngay lúc này: khói, lửa, dây điện trần hở, ngập lụt diện rộng, có người bất tỉnh, có người kẹt trong thang máy, xô xát.")
+    property_spread: CriterionScore | None = Field(
+        default=None,
+        description="0-4: mức lan của thiệt hại tài sản nếu không xử lý. 0 hỏng tại chỗ không lan; 4 lan nhanh diện rộng không tự dừng.",
+    )
+    essential_function: CriterionScore | None = Field(
+        default=None,
+        description="0-4: mức mất chức năng thiết yếu của căn hộ (điện, nước, vệ sinh, lối ra vào). 0 không ảnh hưởng; 4 căn hộ không ở được.",
+    )
+    affected_scope: CriterionScore | None = Field(
+        default=None,
+        description="0-4: SỐ CĂN HỘ bị ảnh hưởng. 0 là một căn, 1 là hai căn, 2 là ba căn, 3 là bốn căn, 4 là từ năm căn trở lên.",
+    )
+    deterioration_speed: CriterionScore | None = Field(
+        default=None,
+        description="0-4: tốc độ xấu đi nếu để nguyên. 0 ổn định; 1 theo tuần; 2 theo ngày; 3 theo giờ; 4 theo phút.",
+    )
+    blockers: list[BlockerFinding] = Field(
+        default_factory=list,
+        max_length=11,
+        description="Các mã sự cố khẩn cấp đang có mặt, mỗi mã kèm bằng chứng của riêng nó. Để trống khi không có.",
+    )
+    criterion_evidence: CriterionEvidence = Field(
+        default_factory=CriterionEvidence,
+        description="Bằng chứng cho từng tiêu chí, tách riêng. Chỉ ghi vào tiêu chí mà bằng chứng đó thật sự nói tới.",
+    )
+    unknown_facts: list[str] = Field(
+        default_factory=list,
+        max_length=5,
+        description="Tên các tiêu chí bạn KHÔNG có căn cứ để chấm, ví dụ 'affected_scope'. Dùng để phân biệt 'đã kiểm tra và không có' với 'không biết'.",
+    )
     understandable: bool = Field(description="Xét tổng thể, phản ánh đã đủ để hiểu vấn đề là gì hay chưa?")
     image_relevant: bool | None = Field(
         default=None,
-        description="Ảnh có thể hiện một sự cố trong tòa chung cư này hay không. Để trống khi không có ảnh.",
+        description="Ảnh hoặc text có thể hiện một sự cố trong tòa chung cư này hay không. Để trống khi không có ảnh.",
     )
     location_consistent: bool = Field(
         default=True,
@@ -118,15 +230,61 @@ class UnifiedClassification(BaseModel):
         description="Chỉ dùng cho CATEGORY_CONFIRMATION: 2 đến 4 tên Category khác nhau, lấy đúng nguyên văn từ danh mục, để cư dân chọn.",
     )
 
+    @property
+    def criteria(self) -> dict[str, int] | None:
+        """The five scores as one mapping, or None while any is missing."""
+        values = {name: getattr(self, name) for name in CRITERION_FIELDS}
+        if any(value is None for value in values.values()):
+            return None
+        return {name: int(value) for name, value in values.items()}
+
+    @property
+    def blocker_codes(self) -> list[str]:
+        """Just the codes, for the layers that store or floor on them."""
+        return [finding.code for finding in self.blockers]
+
+    @property
+    def evidence(self) -> dict[str, object]:
+        """Per-criterion evidence in the shape the contract stores it.
+
+        Taken from what the model actually attributed, not derived. The old
+        derivation copied every observed fact into every criterion scored above
+        zero, which made the audit table say that the same sentence was the
+        reason for four different numbers.
+        """
+        payload: dict[str, object] = {
+            name: [item.strip() for item in getattr(self.criterion_evidence, name) if item.strip()]
+            for name in CRITERION_FIELDS
+        }
+        payload["blockers"] = {
+            finding.code: [item.strip() for item in finding.evidence if item.strip()]
+            for finding in self.blockers
+        }
+        return payload
+
     @model_validator(mode="after")
     def validate_classification(self):
-        if self.red_flag and self.severity is None:
-            # Một red flag đi thẳng ra ngoài theo hướng khẩn cấp, và mọi kết quả
-            # thoát ra không phải "không đủ thông tin" đều đi kèm một mức độ
-            # nghiêm trọng. Báo cáo nguy hiểm mà không có mức độ sẽ tạo ra một
-            # payload mà Backend phải từ chối, và tự bịa ra HIGH ở đây không
-            # phải là điều quy tắc nào cho phép.
-            raise ValueError("red_flag=true requires a severity.")
+        codes = [finding.code for finding in self.blockers]
+        if len(set(codes)) != len(codes):
+            raise ValueError("blockers must not repeat a code.")
+        unknown = set(self.unknown_facts) - set(CRITERION_FIELDS)
+        if unknown:
+            raise ValueError(f"unknown_facts may only name criteria; got {sorted(unknown)}.")
+
+        # `unknown_facts` and a missing score are two spellings of one fact, and
+        # they have to agree in both directions. A payload that scores a
+        # criterion 0 *and* names it unknown is the one that does real damage:
+        # the 0 is a complete set of criteria, so the round finishes, the ticket
+        # is scored and published, and the declared gap is never asked about --
+        # while the audit row says the Agent did not know.
+        scored = {name for name in CRITERION_FIELDS if getattr(self, name) is not None}
+        declared = set(self.unknown_facts)
+        both = sorted(scored & declared)
+        if both:
+            raise ValueError(f"A criterion cannot be both scored and unknown; got {both}.")
+        silent = sorted(set(CRITERION_FIELDS) - scored - declared)
+        if silent:
+            raise ValueError(f"A criterion with no score must be named in unknown_facts; missing {silent}.")
         if self.question_kind == "NONE":
             if self.category_options:
                 raise ValueError("category_options is only valid with question_kind=CATEGORY_CONFIRMATION.")
@@ -134,19 +292,19 @@ class UnifiedClassification(BaseModel):
             # gì là một ngõ cụt: graph sẽ không còn việc gì để làm và cũng
             # không có lối thoát trung thực nào, và nói rằng "hết ngân sách"
             # sẽ là nói dối về một vòng không tiêu tốn gì cả. Hoặc phải chốt
-            # một Category và một mức độ nghiêm trọng, hoặc phải hỏi đúng một
-            # câu xác nhận để giải quyết dứt điểm.
+            # một Category và đủ năm tiêu chí, hoặc phải hỏi đúng một câu xác
+            # nhận để giải quyết dứt điểm.
             #
-            # Red flag được miễn trừ, và có chủ ý như vậy: nguy hiểm đi thẳng
-            # sang hướng xử lý khẩn cấp mà không cần điểm số, nên việc gọi tên
-            # Category không phải là yếu tố quyết định cách xử lý, và "có khói
-            # trong sảnh, chưa rõ nguyên nhân" vẫn là một phản ánh thật và
-            # không được từ chối chỉ vì thiếu Category.
-            if self.understandable and not self.red_flag:
+            # A report carrying a blocker is exempt from the Category rule, and
+            # deliberately so: an emergency is handled by speed rather than by
+            # which bucket it was filed under, and "there is smoke in the lobby,
+            # cause unknown" is a real report that must not be refused for
+            # lacking a Category.
+            if self.understandable and not self.blockers:
                 if self.category is None:
                     raise ValueError("A Category is required unless a confirmation is requested or the report is unreadable.")
-                if self.severity is None:
-                    raise ValueError("A severity is required unless a severity confirmation is requested or the report is unreadable.")
+                if self.criteria is None:
+                    raise ValueError("All five criteria are required unless a confirmation is requested or the report is unreadable.")
             return self
 
         if not (self.question_text or "").strip():
@@ -163,8 +321,15 @@ class UnifiedClassification(BaseModel):
         elif self.category_options:
             raise ValueError("category_options is only valid with question_kind=CATEGORY_CONFIRMATION.")
 
-        if self.question_kind == "SEVERITY_CONFIRMATION" and self.severity is not None:
-            raise ValueError("Do not ask for a severity confirmation and also report a severity.")
+        criterion = QUESTION_CRITERION.get(self.question_kind)
+        if criterion is not None:
+            if getattr(self, criterion) is not None:
+                raise ValueError(f"Do not ask about {criterion} and also report a score for it.")
+            if criterion not in self.unknown_facts:
+                # The question and the gap have to agree. A model that asks
+                # about spread while claiming it knows the spread is spending a
+                # scarce question on something it did not need.
+                raise ValueError(f"{self.question_kind} requires {criterion} in unknown_facts.")
         return self
 
 
@@ -215,7 +380,7 @@ _BOUNDARY_RULES = """Ranh giới quyền quyết định của bạn (áp dụng
 
 - Chỉ dùng đúng các tên Category trong danh mục được cung cấp, giữ nguyên văn. Không tự tạo Category mới, không dùng Category ngoài danh mục.
 - Mỗi ticket chỉ có ĐÚNG MỘT Category cuối cùng. Không trả về nhiều Category, không trả về phương án "tất cả đều đúng".
-- Không tự tính, tự đoán hay tự nêu số căn hộ bị ảnh hưởng. Con số đó do hệ thống tính.
+- affected_scope: chỉ chấm theo số căn được nói rõ, hoặc có bằng chứng trực tiếp trong nội dung đang xem. Không suy đoán, không cộng thêm vì "chắc còn căn khác". Bạn KHÔNG biết hệ thống đã xác nhận được bao nhiêu căn và không được đoán con số đó: khi các phản ánh cùng một sự cố được gộp thành cụm, hệ thống thay điểm ước lượng của bạn bằng số căn nó đếm được.
 - Không tự tạo, tự đoán hay tự bịa mã ticket. Mọi mã ticket bạn nhắc tới phải xuất hiện trong danh sách ứng viên được cung cấp.
 - Không tự đổi vị trí sự cố. Cư dân đã chọn vị trí từ một danh sách cố định; bạn chỉ được đề nghị họ xác nhận lại trong trường hợp sự cố họ mô tả không được khớp với vị trí họ đã gửi, không được suy ra vị trí từ chữ.
 - Chỉ trả về đúng các trường trong schema. Không thêm trường phụ, không thêm ghi chú ngoài schema.
@@ -228,23 +393,83 @@ Nhiệm vụ của bạn là trả về các kết quả phân loại:
 
 - category: ĐÚNG MỘT tên Category cuối cùng cho ticket này. Chỉ để trống khi bạn thực sự cần hỏi cư dân để xác nhận trước.
 - text_category và image_category: chỉ là BẰNG CHỨNG để giải thích. Ghi lại Category mà riêng phần chữ gợi ý, và Category mà riêng phần ảnh gợi ý. Hai trường này dùng để tự động gộp lại thành kết luận.
-- severity: chọn đúng một mức LOW/MEDIUM/HIGH dựa trên bằng chứng cụ thể trong chữ hoặc trong ảnh, ngoài ra còn dựa trên ngữ cảnh nếu cảm thấy vấn đề này vô cùng phiền toái hoặc ảnh hưởng đến sinh hoạt nghiêm trọng. TUYỆT ĐỐI KHÔNG chọn LOW chỉ vì thiếu thông tin. Nếu thật sự không có căn cứ nào để đánh giá mức độ, hãy để trống và hỏi cư dân bằng question_kind=SEVERITY_CONFIRMATION.
-- red_flag: chỉ bật khi có dấu hiệu đe dọa an toàn con người ngay lúc này: khói, lửa, người ngất xỉu, người kẹt trong thang máy, ẩu đả gây rối. Hư hỏng nặng nhưng không nguy hiểm tức thời thì KHÔNG phải red_flag. Nếu red_flag = true thì severity bắt buộc phải có giá trị. Hạn chế các trường hợp red_flag, chỉ đánh khi thật sự nguy hiểm đến tính mạng con người
+- NĂM TIÊU CHÍ RỦI RO: chấm mỗi tiêu chí một số nguyên 0-4 theo đúng mốc bên dưới. Đây là phần quan trọng nhất. Bạn KHÔNG tính điểm tổng, KHÔNG chọn mức ưu tiên, KHÔNG nói P1..P5 - hệ thống tự tính từ năm con số này.
+- blockers: các mã sự cố khẩn cấp đang có mặt (danh sách bên dưới). Để trống khi không có. Mỗi phần tử gồm code và evidence RIÊNG của mã đó - bằng chứng của mã này không được dùng lại cho mã khác. Mỗi mã nâng sàn mức ưu tiên một cách khác nhau, nên người duyệt cần biết dòng nào chứng minh cho mã nào.
+- unknown_facts: tên những tiêu chí bạn KHÔNG có căn cứ nào để chấm. Chấm 0 nghĩa là 'đã xem và không có', khác hẳn 'không biết'. Một tiêu chí chỉ được nằm ở đúng MỘT trong hai chỗ: hoặc có điểm 0-4, hoặc có tên trong unknown_facts và để TRỐNG điểm. Vừa chấm điểm vừa khai không biết là payload không hợp lệ, và điền đại một điểm cho tiêu chí bạn không biết cũng vậy. Khi còn tiêu chí chưa biết, hãy hỏi cư dân đúng một câu nhắm vào nó.
+- criterion_evidence: bằng chứng cho từng tiêu chí, để riêng từng tiêu chí. Chỉ ghi một dòng vào tiêu chí mà nó thật sự nói tới; đừng chép cùng một câu vào nhiều tiêu chí. Để trống là hợp lệ và có nghĩa 'phản ánh không nói gì về tiêu chí này' - đó là lý do chính đáng cho một điểm 0.
 - understandable: toàn bộ phản ánh (chữ + ảnh) có đủ để hiểu vấn đề hay không.
-- image_relevant: ảnh có thật sự liên quan tới một sự cố trong chung cư hay không. Đánh giá nghiêm khắc: ảnh gửi nhầm, ảnh sản phẩm, ảnh chụp màn hình đều là không liên quan. Để trống khi không có ảnh.
+- image_relevant: ảnh hoặc text có thật sự liên quan tới một sự cố trong chung cư hay không. Đánh giá nghiêm khắc:  gửi nhầm, ảnh sản phẩm, ảnh chụp màn hình đều là không liên quan.
 - location_consistent: vấn đề được mô tả có hợp với vị trí cư dân đã chọn hay không. Ví dụ không hợp: cư dân chọn "Thang máy" nhưng mô tả và ảnh đều về thấm trần phòng ngủ.
-- incident_facts: tối đa 8 mệnh đề rất ngắn về BIỂU HIỆN quan sát được. Chỉ ghi điều thật sự được mô tả hoặc nhìn thấy, không suy diễn.
-- ai_reason: BẮT BUỘC. 1-3 câu ngắn nêu đúng căn cứ cụ thể dẫn tới Category và mức độ nghiêm trọng đã chọn. Không nhắc lại tên Category suông.
+- incident_facts: tối đa 4 mệnh đề rất ngắn về BIỂU HIỆN quan sát được. Chỉ ghi điều thật sự được mô tả hoặc nhìn thấy, không suy diễn.
+- ai_reason: BẮT BUỘC. 1-3 câu ngắn nêu đúng căn cứ cụ thể dẫn tới Category và các điểm đã chấm. Không nhắc lại tên Category suông.
 
-Khi nào được hỏi cư dân, và chỉ được hỏi ba việc này:
+MỐC CHẤM ĐIỂM 0-4 (bắt buộc theo đúng những mốc này):
 
-1. CATEGORY_CONFIRMATION - khi phần chữ và phần ảnh chỉ về hai vấn đề khác nhau, hoặc khi mô tả mơ hồ giữa hai Category. Hãy đưa ra lý do bạn cho rằng là ảnh và text mơ hồ, hỏi cư dân MUỐN XỬ LÝ VẤN ĐỀ NÀO trong phản ánh này, và liệt kê chính các Category đó vào category_options (2 đến 4 lựa chọn, đúng tên trong danh mục). Không đưa ra lựa chọn "cả hai" hay "tất cả": một phản ánh chỉ giải quyết một vấn đề. Nếu cư dân có nhiều vấn đề khác nhau, họ phải gửi phản ánh riêng cho từng vấn đề - hãy nói rõ điều đó trong question_text.
-2. SEVERITY_CONFIRMATION - khi Category đã rõ nhưng không có căn cứ nào để biết mức độ nghiêm trọng. Hỏi đúng một chi tiết còn thiếu (phạm vi ảnh hưởng, nó cản trở sinh hoạt tới đâu).
-3. LOCATION_CONFIRMATION - khi location_consistent = false, tức là vấn đề được mô tả không khớp với vị trí cư dân đã chọn. Chỉ nêu ra sự không khớp và đề nghị cư dân xác nhận lại vị trí, họ xác nhận không có vấn đề nhầm thì tiếp tục xử lý, họ có thì tiến hành xác nhận lại vị trí; TUYỆT ĐỐI không tự đoán vị trí đúng và không viết tên vị trí thay cho họ.
+human_safety - nguy hiểm trực tiếp cho thân thể người :
+  0 = không có yếu tố an toàn, chỉ phiền toái hoặc thẩm mỹ.
+  1 = rủi ro gián tiếp, phải trùng hợp mới gây thương tích (sàn ẩm ở khu ít qua lại).
+  2 = rủi ro thật nhưng tránh được (sàn trơn lối đi chung, cạnh sắc trong tầm với).
+  3 = nguy hiểm cao, người thường không tự tránh được (ổ điện hở tầm trẻ em, lan can lung lay).
+  4 = đang đe doạ tính mạng hoặc đã có người bị thương (cháy, điện giật, ngạt khí, người mắc kẹt).
 
-Nếu không cần hỏi gì, để question_kind = NONE.
+property_spread - quy mô ảnh hưởng:
+  2 = khi sử dụng trong khu vực riêng
+  4 = khu vực chung
 
-Nếu phần đầu vào có dòng "Category cư dân đã chọn" thì chính cư dân đã trả lời câu hỏi nên xử lý vấn đề nào. Khi đó: bắt buộc đặt category đúng bằng tên đó, KHÔNG được đổi sang Category khác dù chữ hay ảnh gợi ý khác đi, và KHÔNG được hỏi lại CATEGORY_CONFIRMATION. Bạn vẫn phải đánh giá lại severity, red_flag, ai_reason, và vẫn có thể hỏi SEVERITY_CONFIRMATION hoặc LOCATION_CONFIRMATION nếu thật sự cần. Nếu chữ hoặc ảnh cho thấy một vấn đề khác hẳn, hãy ghi điều đó vào text_category / image_category và nói rõ trong ai_reason rằng đó là vấn đề riêng cần gửi phản ánh khác.
+
+essential_function - chức năng sống thiết yếu: điện, nước, vệ sinh, lối ra vào:
+  0 = không đụng tới chức năng thiết yếu.
+  1 = suy giảm nhẹ, vẫn dùng được (nước yếu, một ổ cắm chết).
+  2 = mất một chức năng phụ hoặc còn đường thay thế (toilet phụ hỏng, một nhánh điện mất).
+  3 = mất một chức năng thiết yếu, không có đường thay thế (toilet duy nhất không dùng được, điều hòa hỏng, vòi nước và máy giặt hỏng,..).
+  4 = toàn bộ chức năng căn hộ không ở được (mất hoàn toàn cả điện hoặc nước, hoặc không vào được nhà, thang máy hỏng không vận hành được) luôn được chấm 4.
+
+affected_scope - số phản ánh:
+  0 = một căn. 1 = hai căn. 2 = ba căn. 3 = bốn căn. 4 = từ năm căn trở lên.
+  Chỉ đếm những căn được nói rõ hoặc có bằng chứng trực tiếp trong chính phản ánh này.
+  Cư dân nói 'chắc cả tầng bị' mà không có dấu hiệu nào khác thì vẫn là 0.
+  Nếu bạn thật sự không có căn cứ nào, hãy để trống điểm và ghi affected_scope vào unknown_facts.
+  Đây là tiêu chí duy nhất hệ thống có thể ghi đè: khi các phản ánh cùng một sự cố được gộp cụm,
+  hệ thống đếm số căn thật và thay điểm của bạn.
+
+deterioration_speed - tốc độ xấu đi nếu để nguyên:
+  0 = ổn định, để một tuần cũng như vậy. 1 = theo tuần. 2 = theo ngày. 3 = theo giờ. 4 = theo phút.
+
+PHÂN BIỆT - những chỗ dễ chấm sai nhất:
+
+1. Mất điện TOÀN CĂN khác một ổ cắm hỏng. Toàn căn là essential_function 3-4; một ổ cắm là 1.
+2. Cắt điện CÓ KẾ HOẠCH (có thông báo trước) không phải sự cố: essential_function thấp và KHÔNG
+   phải blocker TOTAL_UNPLANNED_UTILITY_LOSS. Chỉ mất điện/nước NGOÀI kế hoạch mới tính.
+3. Nước YẾU khác MẤT NƯỚC hoàn toàn. Nước yếu là 1; mất hẳn không có cách thay thế là 3.
+4. Toilet DUY NHẤT không dùng được là 3 và là blocker SOLE_TOILET_UNUSABLE. Toilet PHỤ hỏng
+   trong khi còn toilet khác dùng được là 2 và KHÔNG phải blocker.
+5. Nước ĐANG LAN sang căn khác (đã thấy dấu vết, đã có người báo) khác với khả năng lý thuyết
+   'có thể sẽ lan'. Chỉ cái thứ nhất mới cho property_spread 3-4.
+6. LỐI THOÁT DUY NHẤT bị chặn là blocker SOLE_ESCAPE_ROUTE_BLOCKED. Một lối trong nhiều lối bị
+   chặn thì KHÔNG phải blocker; hãy chấm human_safety theo mức thật.
+7. Chữ 'cháy' hoặc bất cứ dấu hiệu nguy hiểm xuất hiện trong ảnh hoặc trong tên đồ vật (bảng 'PCCC', bình chữa cháy, biển báo)
+   KHÔNG phải bằng chứng cháy. Chỉ bật FIRE_OR_SMOKE khi có khói hoặc lửa thật sự đang xảy ra.
+8. KHU VỰC CHUNG không tự động là điểm tối đa. Một bóng đèn hành lang cháy vẫn là affected_scope 0
+   và human_safety thấp. Khu vực chung chỉ là bối cảnh, không phải một luật cộng điểm.
+
+MÃ BLOCKER (chỉ dùng đúng những mã này, chỉ khi có bằng chứng):
+  FIRE_OR_SMOKE, ELECTRIC_SHOCK_OR_LIVE_WIRE, GAS_LEAK_OR_ASPHYXIATION, SERIOUS_INJURY,
+  PERSON_TRAPPED_IN_ELEVATOR, SOLE_ESCAPE_ROUTE_BLOCKED, ONGOING_VIOLENCE,
+  SEWAGE_OVERFLOW, HEAVY_WATER_FLOW_SPREAD_RISK, TOTAL_UNPLANNED_UTILITY_LOSS, SOLE_TOILET_UNUSABLE.
+
+Khi nào được hỏi cư dân. Mỗi lượt CHỈ ĐƯỢC HỎI ĐÚNG MỘT CÂU:
+
+1. CATEGORY_CONFIRMATION - khi phần chữ và phần ảnh chỉ về hai vấn đề khác nhau, hoặc khi mô tả mơ hồ giữa hai Category. Hãy đưa ra lý do bạn cho rằng là ảnh và text mơ hồ, hỏi cư dân MUỐN XỬ LÝ VẤN ĐỀ NÀO trong phản ánh này, và liệt kê chính các Category đó vào category_options (2 đến 4 lựa chọn, đúng tên trong danh mục). Không đưa ra lựa chọn "cả hai" hay "tất cả": một phản ánh chỉ giải quyết một vấn đề. Nếu cư dân có nhiều vấn đề khác nhau, họ phải gửi phản ánh riêng cho từng vấn đề - hãy nói rõ điều đó trong question_text. Trường hợp chỉ có text và mô tả một cách mơ hồ, bạn cần yêu cầu "vui lòng mô tả kĩ lại vấn đề".
+2. LOCATION_CONFIRMATION - khi location_consistent = false, tức là vấn đề được mô tả theo logic của bạn không thực sự hợp lý với vị trí được chọn. Chỉ nêu ra sự không khớp và đề nghị cư dân xác nhận lại vị trí, họ xác nhận không có vấn đề nhầm thì tiếp tục xử lý, họ có thì tiến hành xác nhận lại vị trí; TUYỆT ĐỐI không tự đoán vị trí đúng và không viết tên vị trí thay cho họ.
+3.  CÂU HỎI TIÊU CHÍ - mỗi câu nhắm đúng MỘT tiêu chí bạn không chấm được, chỉ hỏi với các tiêu chí sau:
+   - ESSENTIAL_FUNCTION_CONFIRMATION cho essential_function. Bạn cần phải tự hiểu rằng việc vấn đề này xảy ra ảnh hưởng tới chất lượng cuộc sống người dân ra sao. Bạn chỉ cố gắng xác nhận đó liệu họ còn phương án thay thế hay không thôi. Ví dụ nếu họ phản ánh hỏng máy sấy. Bạn cần phải hỏi đó có phải máy sấy duy nhất trong nhà. Không hỏi khi mà phản ánh này đến từ khu vựng chung vì các đồ dùng ở khu vực chung đã biết chúng giúp gì cho người dân từ trước rồi. VD: Câu hỏi: Xác nhận vấn đề là tắc cống. Gia đình đã có phương án xử lý để có thể duy trì sinh hoạt chưa ? Đáp án trắc nghiệm: Đã có/ chưa. Một dạng cần đưa câu hỏi đó là khi người phản ánh về vấn đề ồn ào. Chỉ cần hỏi một câu đơn giản: Ồn ảo có ảnh hưởng đến chất lượng sinh hoạt hiện tại của bạn và gia đình ? Đáp án trắc nghiệm: Có/ Không, tôi nghi ngờ có vấn đề gì không hay đang xảy ra. Với câu trả lời có sẽ được cho điểm 4, câu trả lời không sẽ được cho điểm 1.
+   - DETERIORATION_CONFIRMATION cho deterioration_speed. Hỏi câu hỏi để xác nhận xem tình trạng có xấu đi theo thời gian không. VD: Nước có bị đọng lại gây mất vệ sinh không ? Gãy đường ống như vậy thì nước còn chảy không ?. Chủ yếu là cho các vấn đề liên quan đến WATER.
+
+   Chỉ được hỏi khi tiêu chí đó đang nằm trong unknown_facts và bạn để trống điểm của nó. Hỏi đúng một chi tiết quan sát được ("nước còn đang chảy không?"), KHÔNG hỏi "mức độ nghiêm trọng thế nào" - cư dân không chấm điểm thay bạn.
+
+Nếu không cần hỏi gì, để question_kind = NONE và suy ra điểm các tiêu chí còn lại theo câu văn, hình ảnh hoặc tình huống mà bạn đã từng biết.
+
+Nếu phần đầu vào có dòng "Category cư dân đã chọn" thì chính cư dân đã trả lời câu hỏi nên xử lý vấn đề nào. Khi đó: bắt buộc đặt category đúng bằng tên đó, KHÔNG được đổi sang Category khác dù chữ hay ảnh gợi ý khác đi, và KHÔNG được hỏi lại CATEGORY_CONFIRMATION. Bạn vẫn phải chấm lại năm tiêu chí, blockers và ai_reason, và vẫn có thể hỏi một câu tiêu chí hoặc LOCATION_CONFIRMATION nếu thật sự cần. Nếu chữ hoặc ảnh cho thấy một vấn đề khác hẳn, hãy ghi điều đó vào text_category / image_category và nói rõ trong ai_reason rằng đó là vấn đề riêng cần gửi phản ánh khác.
 
 Đừng hỏi lại một điều cư dân đã trả lời. Phần lịch sử hỏi đáp được gửi kèm là toàn bộ hội thoại của ticket này - hãy đọc nó trước khi quyết định. Số lượt hỏi rất ít, tiêu một lượt vào câu đã biết đáp án là mất trắng.
 
@@ -289,16 +514,19 @@ Nếu không có ứng viên nào thực sự phù hợp, trả về grouped = f
 
 CLASSIFICATION_REPAIR_HINT = """Câu trả lời vừa rồi không đúng ràng buộc của schema. Hãy trả lời lại, chú ý đúng các luật sau:
 
-1. Nếu red_flag = true thì severity BẮT BUỘC là LOW, MEDIUM hoặc HIGH.
-2. ai_reason BẮT BUỘC có nội dung, nêu đúng căn cứ cụ thể dẫn tới Category và mức độ nghiêm trọng.
+1. Mỗi phần tử của blockers BẮT BUỘC có code hợp lệ và ít nhất một dòng evidence của RIÊNG mã đó. Không được để hai mã dùng chung một dòng bằng chứng, và không được lặp lại một mã.
+2. ai_reason BẮT BUỘC có nội dung, nêu đúng căn cứ cụ thể dẫn tới Category và các điểm đã chấm.
 3. Nếu question_kind khác NONE thì question_text BẮT BUỘC có nội dung.
 4. Nếu question_kind = CATEGORY_CONFIRMATION thì category_options BẮT BUỘC có từ 2 đến 4 tên Category khác nhau, lấy đúng nguyên văn trong danh mục.
 5. Nếu question_kind khác CATEGORY_CONFIRMATION thì category_options phải để trống.
-6. Nếu question_kind = SEVERITY_CONFIRMATION thì severity phải để trống.
+6. Nếu question_kind là một câu hỏi tiêu chí thì điểm của tiêu chí đó phải để trống VÀ tên tiêu chí đó phải có trong unknown_facts.
 7. Nếu đầu vào có dòng "Category cư dân đã chọn" thì category BẮT BUỘC đúng bằng tên đó và question_kind KHÔNG được là CATEGORY_CONFIRMATION.
-8. Nếu understandable = true, red_flag = false và question_kind = NONE thì category và severity BẮT BUỘC đều có giá trị. Không hiểu được phản ánh thì để understandable = false; còn nếu chỉ thiếu một chi tiết để chốt thì hãy hỏi lại bằng question_kind tương ứng.
+8. Nếu understandable = true, blockers rỗng và question_kind = NONE thì category và cả năm tiêu chí BẮT BUỘC đều có giá trị. Không hiểu được phản ánh thì để understandable = false; còn nếu chỉ thiếu một chi tiết để chốt thì hãy hỏi lại bằng question_kind tương ứng.
+9. unknown_facts chỉ được chứa tên tiêu chí: human_safety, property_spread, essential_function, affected_scope, deterioration_speed.
+9b. Mỗi tiêu chí phải nằm ở đúng MỘT chỗ: hoặc có điểm 0-4, hoặc có tên trong unknown_facts và điểm để trống. Không được vừa chấm điểm vừa khai không biết, và không được bỏ trống điểm mà không khai vào unknown_facts.
+10. TUYỆT ĐỐI không trả về điểm tổng, mức ưu tiên P1..P5, hay severity. Hệ thống tự tính.
 
-Không bịa giá trị để lách luật."""
+"""
 
 
 # ---------------------------------------------------------------------------
@@ -447,7 +675,7 @@ class OpenAIAgentLLMClient:
             "Phản ánh mới:",
             f"- Mô tả gốc: {evidence.get('description') or '(không có)'}",
             f"- Category cuối cùng: {evidence.get('category_name') or '(chưa xác định)'}",
-            f"- Mức nghiêm trọng: {evidence.get('severity') or '(chưa xác định)'}",
+            f"- Điểm rủi ro đã chấm: {evidence.get('criteria') or '(chưa xác định)'}",
             f"- Vị trí: {evidence.get('location_label') or '(không rõ)'} (mã: {evidence.get('location_id') or '(không có)'})",
             f"- Biểu hiện ghi nhận được: {', '.join(evidence.get('incident_facts') or []) or '(không có)'}",
         ]

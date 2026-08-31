@@ -75,10 +75,18 @@ export function residentCategoryLabel(ticket: Pick<ResidentTicket, "category_dis
   return ticket.category_display_name?.trim() || "Đang xác định loại sự cố";
 }
 
-/** Priority is already friendly text; the list and fact table want it shorter. */
+/** Priority is already friendly text; the list and fact table want it shorter.
+ *
+ *  Keyed on the backend's own sentence rather than on the band, because a
+ *  resident is never shown "P4" and never shown a score. What they get is what
+ *  happens next; `priority_description` is the backend's wording for that, and
+ *  these are the same sentences at list length. An unrecognised sentence falls
+ *  through unshortened rather than being dropped. */
 const shortPriorities: Record<string, string> = {
-  "mức khẩn cấp cao nhất": "Khẩn cấp",
+  "sự cố khẩn cấp, ban quản lý đang xử lý thủ công": "Khẩn cấp",
+  "cần xử lý ngay trong ca": "Trong ca",
   "cần xử lý sớm": "Ưu tiên",
+  "xử lý theo lịch thường": "Theo lịch",
   "mức xử lý thông thường": "Thông thường",
 };
 

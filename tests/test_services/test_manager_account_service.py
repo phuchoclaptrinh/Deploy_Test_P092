@@ -10,7 +10,7 @@ from src.database.models.unit import Unit
 from src.database.models.user_profile import UserProfile
 from src.models.api.coordinator import ManagerCreateResidentRequest, ManagerCreateTechnicianRequest
 from src.models.api.errors import VALIDATION_ERROR, DomainError
-from src.models.enums import Priority, UserRole
+from src.models.enums import UserRole
 from src.security.supabase_jwt import AuthenticatedPrincipal
 from src.services.manager_account_service import ManagerAccountService
 
@@ -161,8 +161,6 @@ def test_manager_creates_technician_account_with_skills(db_session):
     category = CategoryCatalog(
         code="WATER_LEAK",
         display_name="Rò nước",
-        base_score=40,
-        priority_ceiling=Priority.P2,
         is_active=True,
     )
     db_session.add(category)

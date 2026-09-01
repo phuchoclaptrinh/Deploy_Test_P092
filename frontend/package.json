@@ -1,0 +1,24 @@
+{
+  "name": "apartment-issue-triage-frontend",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "typecheck": "tsc --noEmit --incremental false && tsc --noEmit -p tests/tsconfig.json",
+    "test": "node --experimental-strip-types --test \"tests/**/*.test.ts\""
+  },
+  "dependencies": {
+    "lucide-react": "^0.468.0",
+    "next": "15.5.22",
+    "react": "19.1.0",
+    "react-dom": "19.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "22.13.14",
+    "@types/react": "19.0.12",
+    "@types/react-dom": "19.0.4",
+    "typescript": "5.8.2"
+  }
+}

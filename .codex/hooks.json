@@ -1,0 +1,29 @@
+{
+  "description": "Log Codex prompts and completed turns for the AI usage report.",
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cmd.exe /d /c scripts\\_pyrun.cmd scripts\\log_hook.py --tool=codex",
+            "statusMessage": "Logging AI prompt",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cmd.exe /d /c scripts\\_pyrun.cmd scripts\\log_hook.py --tool=codex",
+            "statusMessage": "Finalizing AI log",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}

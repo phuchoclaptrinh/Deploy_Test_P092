@@ -1,0 +1,1 @@
+"""FixIt API schema package."""

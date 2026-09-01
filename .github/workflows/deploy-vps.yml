@@ -1,0 +1,243 @@
+name: Deploy VPS
+
+on:
+  workflow_dispatch:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-vps-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: [self-hosted, Linux, X64, cohort3]
+    timeout-minutes: 45
+    environment: production
+    if: >-
+      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success') ||
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main')
+    env:
+      RELEASE_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+      RELEASE_ARCHIVE: p092-release-${{ github.event.workflow_run.head_sha || github.sha }}.tar.gz
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE_SHA }}
+
+      - name: Pack source
+        run: |
+          ARCHIVE_PATH="${RUNNER_TEMP}/${RELEASE_ARCHIVE}"
+          rm -f "$ARCHIVE_PATH" "$RELEASE_ARCHIVE"
+
+          tar \
+            --exclude='.git' \
+            --exclude='.github' \
+            --exclude='.env' \
+            --exclude='.env.*' \
+            --exclude='.venv' \
+            --exclude='.ai-log' \
+            --exclude='.pytest_cache' \
+            --exclude='.ruff_cache' \
+            --exclude='.tmp' \
+            --exclude='data' \
+            --exclude='docs' \
+            --exclude='outputs' \
+            --exclude='tests' \
+            --exclude='frontend/.env' \
+            --exclude='frontend/.env.*' \
+            --exclude='frontend/node_modules' \
+            --exclude='frontend/.next' \
+            --exclude='frontend/tests' \
+            --exclude='frontend/tsconfig.tsbuildinfo' \
+            -czf "$ARCHIVE_PATH" .
+
+          mv "$ARCHIVE_PATH" "$RELEASE_ARCHIVE"
+
+      - name: Prepare remote directory
+        uses: appleboy/ssh-action@v1.2.0
+        env:
+          VPS_DEPLOY_PATH: ${{ secrets.VPS_DEPLOY_PATH }}
+          RELEASE_SHA: ${{ env.RELEASE_SHA }}
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          port: ${{ secrets.VPS_PORT || 22 }}
+          envs: VPS_DEPLOY_PATH,RELEASE_SHA
+          script: |
+            set -euo pipefail
+            DEPLOY_PATH="${VPS_DEPLOY_PATH:-/opt/p092}"
+            case "$DEPLOY_PATH" in
+              ''|/) echo "Refusing unsafe VPS_DEPLOY_PATH."; exit 1 ;;
+              /*) ;;
+              *) echo "VPS_DEPLOY_PATH must be an absolute path."; exit 1 ;;
+            esac
+            case "$RELEASE_SHA" in
+              ''|*[!0-9a-fA-F]*) echo "Invalid release SHA."; exit 1 ;;
+            esac
+            mkdir -p "$DEPLOY_PATH"
+            mkdir -p "/tmp/p092-deploy/$RELEASE_SHA"
+
+      - name: Upload source
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          port: ${{ secrets.VPS_PORT || 22 }}
+          source: ${{ env.RELEASE_ARCHIVE }}
+          target: /tmp/p092-deploy/${{ env.RELEASE_SHA }}
+
+      - name: Deploy over SSH
+        uses: appleboy/ssh-action@v1.2.0
+        env:
+          VPS_DEPLOY_PATH: ${{ secrets.VPS_DEPLOY_PATH }}
+          RELEASE_SHA: ${{ env.RELEASE_SHA }}
+          RELEASE_ARCHIVE: ${{ env.RELEASE_ARCHIVE }}
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          port: ${{ secrets.VPS_PORT || 22 }}
+          envs: VPS_DEPLOY_PATH,RELEASE_SHA,RELEASE_ARCHIVE
+          script: |
+            set -Eeuo pipefail
+            DEPLOY_PATH="${VPS_DEPLOY_PATH:-/opt/p092}"
+            PREVIOUS_PATH="${DEPLOY_PATH}.previous"
+            FAILED_PATH="${DEPLOY_PATH}.failed"
+            TRANSFER_DIR="/tmp/p092-deploy/${RELEASE_SHA}"
+            ARCHIVE_PATH="${TRANSFER_DIR}/${RELEASE_ARCHIVE}"
+            RELEASE_DIR="$(mktemp -d "/tmp/p092-release-${RELEASE_SHA:0:12}-XXXXXX")"
+            ACTIVATED=false
+            BACKEND_IMAGE_BACKED_UP=false
+            FRONTEND_IMAGE_BACKED_UP=false
+
+            cleanup() {
+              rm -f "$ARCHIVE_PATH"
+              rmdir "$TRANSFER_DIR" 2>/dev/null || true
+              if [ -n "${RELEASE_DIR:-}" ] && [ -d "$RELEASE_DIR" ]; then
+                rm -rf "$RELEASE_DIR"
+              fi
+            }
+
+            rollback() {
+              exit_code="${1:-$?}"
+              trap - ERR
+              set +e
+              echo "Deploy failed; restoring the previous release."
+
+              if [ "$BACKEND_IMAGE_BACKED_UP" = true ]; then
+                docker tag p092-backend:rollback p092-backend:latest
+              fi
+              if [ "$FRONTEND_IMAGE_BACKED_UP" = true ]; then
+                docker tag p092-frontend:rollback p092-frontend:latest
+              fi
+
+              if [ "$ACTIVATED" = true ]; then
+                if [ -d "$PREVIOUS_PATH" ]; then
+                  rm -rf "$FAILED_PATH"
+                  mv "$DEPLOY_PATH" "$FAILED_PATH"
+                  mv "$PREVIOUS_PATH" "$DEPLOY_PATH"
+                  cd "$DEPLOY_PATH"
+                  docker compose -p p092 --env-file .env.production -f docker-compose.prod.yml up -d --remove-orphans
+                elif [ -d "$DEPLOY_PATH" ]; then
+                  cd "$DEPLOY_PATH"
+                  docker compose -p p092 --env-file .env.production -f docker-compose.prod.yml down
+                fi
+              fi
+
+              cleanup
+              exit "$exit_code"
+            }
+
+            trap rollback ERR
+            trap cleanup EXIT
+
+            case "$DEPLOY_PATH" in
+              ''|/) echo "Refusing unsafe VPS_DEPLOY_PATH."; exit 1 ;;
+              /*) ;;
+              *) echo "VPS_DEPLOY_PATH must be an absolute path."; exit 1 ;;
+            esac
+
+            if [ ! -f "$ARCHIVE_PATH" ]; then
+              echo "Missing release archive: $ARCHIVE_PATH"
+              exit 1
+            fi
+            tar -xzf "$ARCHIVE_PATH" -C "$RELEASE_DIR"
+
+            if [ ! -f "$DEPLOY_PATH/.env.production" ]; then
+              echo "Missing .env.production on VPS."
+              exit 1
+            fi
+            if [ ! -f "$DEPLOY_PATH/frontend/.env.production" ]; then
+              echo "Missing frontend/.env.production on VPS."
+              exit 1
+            fi
+
+            cp "$DEPLOY_PATH/.env.production" "$RELEASE_DIR/.env.production"
+            mkdir -p "$RELEASE_DIR/frontend"
+            cp "$DEPLOY_PATH/frontend/.env.production" "$RELEASE_DIR/frontend/.env.production"
+
+            cd "$RELEASE_DIR"
+            docker compose -p p092 --env-file .env.production -f docker-compose.prod.yml config >/dev/null
+
+            if docker image inspect p092-backend:latest >/dev/null 2>&1; then
+              docker tag p092-backend:latest p092-backend:rollback
+              BACKEND_IMAGE_BACKED_UP=true
+            fi
+            if docker image inspect p092-frontend:latest >/dev/null 2>&1; then
+              docker tag p092-frontend:latest p092-frontend:rollback
+              FRONTEND_IMAGE_BACKED_UP=true
+            fi
+
+            docker compose -p p092 --env-file .env.production -f docker-compose.prod.yml build
+            # Production migrations require a separate, backed-up maintenance procedure.
+            # Refuse this release before activation when the database is not already at head.
+            docker compose -p p092 --env-file .env.production -f docker-compose.prod.yml run --rm backend \
+              python -c "from src.database.schema_version import assert_schema_is_current; from src.database.session import engine; assert_schema_is_current(engine)"
+
+            rm -rf "$PREVIOUS_PATH"
+            if [ -d "$DEPLOY_PATH" ]; then
+              mv "$DEPLOY_PATH" "$PREVIOUS_PATH"
+            fi
+            mv "$RELEASE_DIR" "$DEPLOY_PATH"
+            RELEASE_DIR=""
+            ACTIVATED=true
+
+            cd "$DEPLOY_PATH"
+            docker compose -p p092 --env-file .env.production -f docker-compose.prod.yml up -d --remove-orphans
+
+            healthy=false
+            for attempt in $(seq 1 30); do
+              if curl -fsS http://127.0.0.1:8080/health >/dev/null && \
+                 curl -fsS http://127.0.0.1:3000/ >/dev/null; then
+                healthy=true
+                break
+              fi
+              sleep 4
+            done
+
+            if [ "$healthy" != true ]; then
+              echo "Services did not become healthy within 120 seconds."
+              rollback 1
+            fi
+
+            for service in backend assignment-worker frontend; do
+              if ! docker compose -p p092 --env-file .env.production -f docker-compose.prod.yml \
+                ps --status running --services | grep -Fxq "$service"; then
+                echo "Service is not running: $service"
+                rollback 1
+              fi
+            done
+
+            docker compose -p p092 --env-file .env.production -f docker-compose.prod.yml ps
+            trap - ERR
+            cleanup
+            trap - EXIT
